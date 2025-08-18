@@ -117,7 +117,7 @@ export default function Home() {
         <p>
           Email:{" "}
           <a
-            href="mailto:contact@indianode.com"
+            href="mailto:tvavinash@gmail.com"
             className="text-blue-600 hover:underline"
           >
             tvavinash@gmail.com
@@ -126,7 +126,7 @@ export default function Home() {
         <p>
           Phone:{" "}
           <a
-            href="tel:+9902818004"
+            href="tel:+91 902818004"
             className="text-blue-600 hover:underline"
           >
             +91 9902818004
