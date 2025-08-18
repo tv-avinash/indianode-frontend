@@ -126,10 +126,10 @@ export default function Home() {
         <p>
           Phone:{" "}
           <a
-            href="tel:+91 902818004"
+            href="tel:+919902818004"
             className="text-blue-600 hover:underline"
           >
-            +91 9902818004
+            +919902818004
           </a>
         </p>
         <p className="mt-3 text-xs text-gray-400">
