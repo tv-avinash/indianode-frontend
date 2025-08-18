@@ -129,7 +129,7 @@ export default function Home() {
             href="tel:+9902818004"
             className="text-blue-600 hover:underline"
           >
-            +91 98765 43210
+            +91 9902818004
           </a>
         </p>
         <p className="mt-3 text-xs text-gray-400">
