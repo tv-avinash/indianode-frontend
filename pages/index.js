@@ -18,7 +18,6 @@ export default function Home() {
     { name: "LLaMA Inference", price: 300, desc: "Run an LLM on GPU" },
   ];
 
-  // Call our server to create a Razorpay order (REST; no SDK)
   const createOrder = async (template, price) => {
     const r = await fetch("/api/order", {
       method: "POST",
@@ -32,16 +31,14 @@ export default function Home() {
       }
       throw new Error(data?.error || "Order creation failed");
     }
-    return data; // { id, amount, currency, ... }
+    return data;
   };
 
   const openRazorpay = async (template, price) => {
     try {
       setLoading(true);
-      // 1) create order on our server (also double-checks GPU availability)
       const order = await createOrder(template, price);
 
-      // 2) open Razorpay Checkout with order_id
       const options = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_xxxxxx",
         amount: order.amount,
@@ -50,7 +47,6 @@ export default function Home() {
         name: "Indianode Cloud",
         description: `Deployment for ${template}`,
         handler: function (response) {
-          // Server-side webhook will verify; this is just immediate feedback
           alert("Payment success: " + response.razorpay_payment_id);
         },
         theme: { color: "#111827" },
@@ -113,8 +109,36 @@ export default function Home() {
         </div>
       </main>
 
+      {/* New Contact Section */}
+      <section className="mt-16 border-t pt-10 pb-6 text-center text-sm text-gray-700">
+        <p className="mb-2">
+          💬 Looking for custom pricing, discounts, or rate concessions? Reach out:
+        </p>
+        <p>
+          Email:{" "}
+          <a
+            href="mailto:contact@indianode.com"
+            className="text-blue-600 hover:underline"
+          >
+            tvavinash@gmail.com
+          </a>
+        </p>
+        <p>
+          Phone:{" "}
+          <a
+            href="tel:+9902818004"
+            className="text-blue-600 hover:underline"
+          >
+            +91 98765 43210
+          </a>
+        </p>
+        <p className="mt-3 text-xs text-gray-400">
+          We usually reply within 24 hours.
+        </p>
+      </section>
+
       <footer className="p-4 text-center text-sm text-gray-600">
-        © 2025 Indianode • Contact: support@indianode.com
+        © 2025 Indianode
       </footer>
     </div>
   );
