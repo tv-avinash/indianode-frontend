@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "next": "15.4.6",
+    "nodemailer": "^7.0.5",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "ssh2": "^1.16.0"
