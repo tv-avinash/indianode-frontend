@@ -1,14 +1,21 @@
 // pages/index.js
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Script from "next/script";
 
 export default function Home() {
   const [status, setStatus] = useState("checking...");
   const [loading, setLoading] = useState(false);
 
-  // Checkout inputs
+  // Inputs
   const [email, setEmail] = useState("");
-  const [minutes, setMinutes] = useState(60);
+  // Keep a string for the input (more reliable across browsers), derive a number for math.
+  const [minutesStr, setMinutesStr] = useState("60");
+  const minutes = useMemo(() => {
+    const n = parseInt(minutesStr, 10);
+    if (Number.isNaN(n)) return 60;
+    return Math.min(240, Math.max(1, n));
+  }, [minutesStr]);
+
   const [promo, setPromo] = useState("");
 
   // Waitlist inputs / messages
@@ -26,17 +33,19 @@ export default function Home() {
   // Price (₹) for 60 minutes. We pro-rate from here.
   const price60 = { whisper: 100, sd: 200, llama: 300 };
 
-  // Format INR nicely
   const formatINR = (n) =>
     new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n);
 
-  // Compute ₹ for selected minutes (ceil to whole rupees)
+  // Accept TRY or TRY10 as promo
+  const isTryPromo = (code) =>
+    /^TRY(?:10)?$/i.test(String(code || "").trim());
+
   function computePrice(key, mins, promoCode) {
     const base = price60[key]; // ₹ for 60 min
     if (!base) return 0;
     const m = Math.max(1, Number(mins || 60));
     let total = Math.ceil((base / 60) * m);
-    if (String(promoCode || "").trim().toUpperCase() === "TRY10") {
+    if (isTryPromo(promoCode)) {
       total = Math.max(1, total - 100);
     }
     return total;
@@ -69,7 +78,6 @@ export default function Home() {
       setMsg("");
       setLoading(true);
 
-      // Ensure Razorpay script is present
       if (typeof window === "undefined" || typeof window.Razorpay === "undefined") {
         alert("Payment module not loaded yet. Please wait a moment and try again.");
         return;
@@ -124,7 +132,7 @@ export default function Home() {
           email,
           product: interest,
           minutes,
-          note: promo?.trim().toUpperCase() === "TRY10" ? "Promo TRY10 user" : "",
+          note: isTryPromo(promo) ? "Promo TRY user" : "",
         }),
       });
       if (!r.ok) throw new Error("waitlist_failed");
@@ -174,8 +182,10 @@ export default function Home() {
                 type="number"
                 min="1"
                 max="240"
-                value={minutes}
-                onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
+                value={minutesStr}
+                // Use both onInput and onChange for snappy updates across browsers
+                onInput={(e) => setMinutesStr(e.target.value)}
+                onChange={(e) => setMinutesStr(e.target.value)}
                 className="border rounded-lg px-3 py-2"
                 disabled={loading}
               />
@@ -185,8 +195,9 @@ export default function Home() {
               <span className="text-sm font-semibold mb-1">Promo code</span>
               <input
                 value={promo}
+                onInput={(e) => setPromo(e.target.value)}
                 onChange={(e) => setPromo(e.target.value)}
-                placeholder="TRY10"
+                placeholder="TRY or TRY10"
                 className="border rounded-lg px-3 py-2"
                 disabled={loading}
               />
@@ -204,6 +215,7 @@ export default function Home() {
                   <input
                     type="email"
                     value={email}
+                    onInput={(e) => setEmail(e.target.value)}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
                     className="border rounded-lg px-3 py-2"
@@ -255,7 +267,7 @@ export default function Home() {
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
                     (₹{formatINR(price60[t.key])} for 60 min)
-                    {String(promo).trim().toUpperCase() === "TRY10" && (
+                    {isTryPromo(promo) && (
                       <span className="text-green-700"> — includes ₹100 off</span>
                     )}
                   </p>
