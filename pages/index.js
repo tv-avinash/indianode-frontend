@@ -1,3 +1,4 @@
+// pages/index.js
 import { useState, useEffect } from "react";
 import Script from "next/script";
 
@@ -22,12 +23,16 @@ export default function Home() {
       .catch(() => setStatus("offline"));
   }, []);
 
-  // “Price for 60 minutes” (your old base)
+  // Price (₹) for 60 minutes. We pro-rate from here.
   const price60 = { whisper: 100, sd: 200, llama: 300 };
 
-  // Compute ₹ for selected minutes (pro-rata; ceil to whole rupees)
+  // Format INR nicely
+  const formatINR = (n) =>
+    new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n);
+
+  // Compute ₹ for selected minutes (ceil to whole rupees)
   function computePrice(key, mins, promoCode) {
-    const base = price60[key]; // rupees for 60 min
+    const base = price60[key]; // ₹ for 60 min
     if (!base) return 0;
     const m = Math.max(1, Number(mins || 60));
     let total = Math.ceil((base / 60) * m);
@@ -64,6 +69,12 @@ export default function Home() {
       setMsg("");
       setLoading(true);
 
+      // Ensure Razorpay script is present
+      if (typeof window === "undefined" || typeof window.Razorpay === "undefined") {
+        alert("Payment module not loaded yet. Please wait a moment and try again.");
+        return;
+      }
+
       const userEmail = (email || "").trim();
       if (!userEmail) {
         setMsg("Tip: add your email so we can send your deploy URL + receipt.");
@@ -79,7 +90,12 @@ export default function Home() {
         name: "Indianode Cloud",
         description: `Deployment for ${displayName} (${minutes} min)`,
         prefill: userEmail ? { email: userEmail } : undefined,
-        notes: { minutes: String(minutes), product, email: userEmail, promo: (promo || "").trim() },
+        notes: {
+          minutes: String(minutes),
+          product,
+          email: userEmail,
+          promo: (promo || "").trim(),
+        },
         theme: { color: "#111827" },
         handler: function (response) {
           alert("Payment success: " + response.razorpay_payment_id);
@@ -235,10 +251,10 @@ export default function Home() {
                   <h2 className="text-xl font-bold mb-2">{t.name}</h2>
                   <p className="text-gray-600 mb-3">{t.desc}</p>
                   <p className="text-gray-800">
-                    <span className="font-semibold">Price for {minutes} min:</span> ₹{total}
+                    <span className="font-semibold">Price for {minutes} min:</span> ₹{formatINR(total)}
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    (₹{price60[t.key]} for 60 min)
+                    (₹{formatINR(price60[t.key])} for 60 min)
                     {String(promo).trim().toUpperCase() === "TRY10" && (
                       <span className="text-green-700"> — includes ₹100 off</span>
                     )}
@@ -252,7 +268,7 @@ export default function Home() {
                   onClick={() => openRazorpay({ product: t.key, displayName: t.name })}
                   disabled={disabled}
                 >
-                  {loading ? "Opening Checkout..." : `Pay ₹${total} • Deploy ${t.name}`}
+                  {loading ? "Opening Checkout..." : `Pay ₹${formatINR(total)} • Deploy ${t.name}`}
                 </button>
               </div>
             );
