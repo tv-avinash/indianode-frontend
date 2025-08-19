@@ -24,7 +24,7 @@ export default async function handler(req, res) {
   const signature = Array.isArray(headerVal) ? headerVal[0] : headerVal; // robust
   const expected  = crypto.createHmac("sha256", secret).update(raw).digest("hex");
 
-  // DEBUG: return what the server expects for THIS exact body
+  // 🔎 Debug: return what the server expects for THIS exact body
   if (req.query?.debug === "1") {
     console.log("WEBHOOK_DEBUG", {
       env: process.env.VERCEL_ENV || "prod",
@@ -40,10 +40,15 @@ export default async function handler(req, res) {
   }
 
   const body = JSON.parse(raw.toString("utf8"));
-  if (body?.event !== "payment.captured") return res.status(200).send("ignored");
+  const event = body?.event;
+  if (event !== "payment.captured") {
+    // Ignore other events to keep idempotent behavior
+    return res.status(200).send("ignored");
+  }
 
-  const pay  = body.payload.payment.entity;
+  const pay  = body.payload?.payment?.entity || {};
   const meta = pay.notes || {};
+
   console.log("✅ payment.captured", {
     payment_id: pay.id,
     order_id:  pay.order_id,
@@ -52,6 +57,53 @@ export default async function handler(req, res) {
     minutes:   meta.minutes,
     userEmail: meta.userEmail,
   });
+
+  // ---- Post-payment deploy trigger (optional) ----
+  // If DEPLOYER_URL is set, call it with idempotency key = payment id.
+  const deployerUrl = process.env.DEPLOYER_URL;
+  if (deployerUrl && pay?.id) {
+    const payload = {
+      product: meta.product,                // e.g. 'whisper' | 'sd' | 'llama'
+      minutes: Number(meta.minutes || 60),  // rental duration
+      customer: { email: meta.userEmail },  // optional
+      payment: { payment_id: pay.id, order_id: pay.order_id, amount: pay.amount },
+    };
+
+    // Don’t block the webhook for long; short timeout + fire-and-log.
+    const controller = new AbortController();
+    const timeoutMs = Number(process.env.DEPLOYER_TIMEOUT_MS || 12000); // 12s default
+    const to = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const resp = await fetch(deployerUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "Idempotency-Key": pay.id, // critical to avoid double deploys
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      clearTimeout(to);
+
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => "");
+        console.error("deployer_non_200", { status: resp.status, body: txt.slice(0, 512) });
+      } else {
+        // Optional: log a small success line
+        const j = await resp.json().catch(() => ({}));
+        console.log("deployer_ok", {
+          status: j?.status || "ok",
+          uri: j?.uri,
+          idempotency_key: j?.idempotency_key,
+        });
+      }
+    } catch (e) {
+      clearTimeout(to);
+      console.error("deployer_call_failed", e?.name || "error", e?.message || String(e));
+    }
+  }
 
   return res.status(200).send("ok");
 }
