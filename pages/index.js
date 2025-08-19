@@ -22,15 +22,26 @@ export default function Home() {
       .catch(() => setStatus("offline"));
   }, []);
 
-  const templates = [
-    { key: "whisper", name: "Whisper ASR",      price: 100, desc: "Speech-to-text on GPU" },
-    { key: "sd",      name: "Stable Diffusion", price: 200, desc: "Text-to-Image AI" },
-    { key: "llama",   name: "LLaMA Inference",  price: 300, desc: "Run an LLM on GPU" },
-  ];
+  // “Price for 60 minutes” (your old base)
+  const price60 = { whisper: 100, sd: 200, llama: 300 };
 
-  // promo helper
-  const effectivePrice = (base) =>
-    Math.max(1, base - (promo.trim().toUpperCase() === "TRY10" ? 100 : 0));
+  // Compute ₹ for selected minutes (pro-rata; ceil to whole rupees)
+  function computePrice(key, mins, promoCode) {
+    const base = price60[key]; // rupees for 60 min
+    if (!base) return 0;
+    const m = Math.max(1, Number(mins || 60));
+    let total = Math.ceil((base / 60) * m);
+    if (String(promoCode || "").trim().toUpperCase() === "TRY10") {
+      total = Math.max(1, total - 100);
+    }
+    return total;
+  }
+
+  const templates = [
+    { key: "whisper", name: "Whisper ASR",      desc: "Speech-to-text on GPU" },
+    { key: "sd",      name: "Stable Diffusion", desc: "Text-to-Image AI" },
+    { key: "llama",   name: "LLaMA Inference",  desc: "Run an LLM on GPU" },
+  ];
 
   async function createOrder({ product, minutes, userEmail, promo }) {
     const r = await fetch("/api/order", {
@@ -169,8 +180,7 @@ export default function Home() {
           {busy && (
             <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
               <div className="text-sm text-amber-800 mb-3">
-                GPU is busy. You can still pay to <b>join the queue</b> (we’ll email you updates), or join the
-                waitlist without paying:
+                GPU is busy. You can still open checkout (we’ll start your job when it’s free), or join the waitlist:
               </div>
               <div className="grid md:grid-cols-3 gap-3">
                 <label className="flex flex-col">
@@ -218,16 +228,19 @@ export default function Home() {
         {/* Product cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {templates.map((t) => {
-            const displayPrice = effectivePrice(t.price);
+            const total = computePrice(t.key, minutes, promo);
             return (
               <div key={t.key} className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between">
                 <div>
                   <h2 className="text-xl font-bold mb-2">{t.name}</h2>
-                  <p className="text-gray-600 mb-4">{t.desc}</p>
-                  <p className="text-gray-800 font-semibold">
-                    Price: ₹{displayPrice}{" "}
-                    {promo.trim().toUpperCase() === "TRY10" && (
-                      <span className="text-green-700 font-normal">(₹100 off applied)</span>
+                  <p className="text-gray-600 mb-3">{t.desc}</p>
+                  <p className="text-gray-800">
+                    <span className="font-semibold">Price for {minutes} min:</span> ₹{total}
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    (₹{price60[t.key]} for 60 min)
+                    {String(promo).trim().toUpperCase() === "TRY10" && (
+                      <span className="text-green-700"> — includes ₹100 off</span>
                     )}
                   </p>
                 </div>
@@ -239,11 +252,7 @@ export default function Home() {
                   onClick={() => openRazorpay({ product: t.key, displayName: t.name })}
                   disabled={disabled}
                 >
-                  {loading
-                    ? "Opening Checkout..."
-                    : busy
-                    ? `Pay & Join Queue — ₹${displayPrice}`
-                    : `Deploy for ₹${displayPrice}`}
+                  {loading ? "Opening Checkout..." : `Pay ₹${total} • Deploy ${t.name}`}
                 </button>
               </div>
             );

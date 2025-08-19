@@ -1,4 +1,4 @@
-// pages/api/order.js — Razorpay via REST (no SDK)
+// pages/api/order.js — Razorpay via REST (minute-based pricing)
 
 function getSiteOrigin(req) {
   if (process.env.NEXT_PUBLIC_SITE_ORIGIN) return process.env.NEXT_PUBLIC_SITE_ORIGIN;
@@ -24,30 +24,34 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: "method_not_allowed" });
   }
 
-  // expected from frontend
   const { product, minutes, userEmail, promo } = req.body || {};
 
-  // Base prices in ₹
-  const PRICES = { whisper: 100, sd: 200, llama: 300 };
-  let amountInRupees = PRICES[product];
+  // Price for 60 minutes (rupees)
+  const PRICE_60 = { whisper: 100, sd: 200, llama: 300 };
+  const base60 = PRICE_60[product];
 
-  // validate product
-  if (!product || !amountInRupees) {
+  if (!product || !base60) {
     return res.status(400).json({ error: "invalid_product" });
   }
+
+  const safeMinutes = Math.max(1, Number(minutes || 60));
+
+  // Compute pro-rata price (ceil to whole rupees)
+  let amountInRupees = Math.ceil((base60 / 60) * safeMinutes);
 
   // Simple promo: TRY10 => ₹100 off (never below ₹1)
   if (typeof promo === "string" && promo.trim().toUpperCase() === "TRY10") {
     amountInRupees = Math.max(1, amountInRupees - 100);
   }
 
-  // Allow orders even when busy if ALLOW_ORDERS_WHEN_BUSY=1
+  // Optional: block orders when busy (unless explicitly allowed)
   const allowWhenBusy = String(process.env.ALLOW_ORDERS_WHEN_BUSY || "").trim() === "1";
   if (!allowWhenBusy && (await isGpuBusy(req))) {
     return res.status(409).json({ error: "gpu_busy" });
   }
 
-  const key_id = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+  const key_id =
+    process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
   const key_secret = process.env.RAZORPAY_KEY_SECRET;
 
   if (!key_id || !key_secret) {
@@ -56,15 +60,13 @@ export default async function handler(req, res) {
 
   const auth = Buffer.from(`${key_id}:${key_secret}`).toString("base64");
 
-  const safeMinutes = String(Math.max(1, Number(minutes || 60)));
-
   const body = {
     amount: Math.floor(amountInRupees * 100), // paise
     currency: "INR",
     receipt: `indianode_${Date.now()}`,
     notes: {
       product,
-      minutes: safeMinutes,
+      minutes: String(safeMinutes),
       userEmail: userEmail || "",
       promo: promo || "",
     },
@@ -90,7 +92,6 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: msg });
     }
 
-    // success -> return the Razorpay order object
     return res.status(200).json(json);
   } catch (e) {
     return res.status(500).json({ error: e?.message || "order_error" });
