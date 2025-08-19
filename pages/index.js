@@ -4,9 +4,16 @@ import Script from "next/script";
 export default function Home() {
   const [status, setStatus] = useState("checking...");
   const [loading, setLoading] = useState(false);
-  const [email, setEmail] = useState("");     // NEW: capture buyer email
-  const [minutes, setMinutes] = useState(60); // NEW: rental duration (mins)
-  const [msg, setMsg] = useState("");         // NEW: small message banner
+
+  // Checkout inputs
+  const [email, setEmail] = useState("");
+  const [minutes, setMinutes] = useState(60);
+  const [promo, setPromo] = useState("");
+
+  // Waitlist inputs / messages
+  const [interest, setInterest] = useState("sd"); // default product in waitlist
+  const [wlMsg, setWlMsg] = useState("");
+  const [msg, setMsg] = useState("");
 
   useEffect(() => {
     fetch("/api/status")
@@ -15,19 +22,17 @@ export default function Home() {
       .catch(() => setStatus("offline"));
   }, []);
 
-  // Display cards, but also carry the product "key" your backend expects
   const templates = [
     { key: "whisper", name: "Whisper ASR",      price: 100, desc: "Speech-to-text on GPU" },
     { key: "sd",      name: "Stable Diffusion", price: 200, desc: "Text-to-Image AI" },
     { key: "llama",   name: "LLaMA Inference",  price: 300, desc: "Run an LLM on GPU" },
   ];
 
-  // Create a Razorpay order on the server with proper notes {product, minutes, userEmail}
-  const createOrder = async ({ product, minutes, userEmail }) => {
+  async function createOrder({ product, minutes, userEmail, promo }) {
     const r = await fetch("/api/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ product, minutes, userEmail }),
+      body: JSON.stringify({ product, minutes, userEmail, promo }),
     });
     const data = await r.json();
     if (!r.ok) {
@@ -36,22 +41,20 @@ export default function Home() {
       }
       throw new Error(data?.error || "Order creation failed");
     }
-    return data; // { id, amount, currency, notes, ... }
-  };
+    return data;
+  }
 
-  const openRazorpay = async ({ product, displayName }) => {
+  async function openRazorpay({ product, displayName }) {
     try {
       setMsg("");
       setLoading(true);
 
-      // gentle email check (optional)
-      const userEmail = email?.trim() || "";
+      const userEmail = (email || "").trim();
       if (!userEmail) {
-        setMsg("Tip: add your email so we can send the deploy URL.");
+        setMsg("Tip: add your email so we can send your deploy URL + receipt.");
       }
 
-      // Create the order with metadata (backend derives price)
-      const order = await createOrder({ product, minutes, userEmail });
+      const order = await createOrder({ product, minutes, userEmail, promo });
 
       const options = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_xxxxxx",
@@ -61,10 +64,9 @@ export default function Home() {
         name: "Indianode Cloud",
         description: `Deployment for ${displayName} (${minutes} min)`,
         prefill: userEmail ? { email: userEmail } : undefined,
+        notes: { minutes: String(minutes), product, email: userEmail, promo: (promo || "").trim() },
         theme: { color: "#111827" },
         handler: function (response) {
-          // Razorpay captured -> webhook will run -> deployer will start job.
-          // You can show a success toast here.
           alert("Payment success: " + response.razorpay_payment_id);
         },
       };
@@ -79,9 +81,30 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  const disabledUI = status !== "available" || loading;
+  async function joinWaitlist() {
+    setWlMsg("");
+    try {
+      const r = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          product: interest,
+          minutes,
+          note: promo?.trim().toUpperCase() === "TRY10" ? "Promo TRY10 user" : "",
+        }),
+      });
+      if (!r.ok) throw new Error("waitlist_failed");
+      setWlMsg("Thanks! We’ll email you as soon as the GPU is free.");
+    } catch {
+      setWlMsg("Could not join waitlist. Please try again.");
+    }
+  }
+
+  const busy = status !== "available";
+  const disabled = loading; // allow checkout even when busy; backend enforces
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -92,34 +115,93 @@ export default function Home() {
       </header>
 
       <main className="p-8 max-w-5xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6 text-center">
-          Rent Powerful GPUs on Demand
+        <h1 className="text-3xl font-bold mb-3 text-center">
+          3090 GPU on demand • India billing • deploy in minutes
         </h1>
-
         <p className="text-center mb-6 text-lg">
           Current GPU Status: <span className="font-semibold">{status}</span>
         </p>
 
-        {/* NEW: Buyer info / duration row */}
-        <div className="max-w-xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-3 mb-8">
-          <input
-            type="email"
-            className="col-span-2 border rounded-xl px-4 py-2"
-            placeholder="Your email (optional, for receipt/status)"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            disabled={loading}
-          />
-          <select
-            className="border rounded-xl px-4 py-2"
-            value={minutes}
-            onChange={(e) => setMinutes(parseInt(e.target.value || "60", 10))}
-            disabled={loading}
-          >
-            {[30, 60, 90, 120].map((m) => (
-              <option key={m} value={m}>{m} minutes</option>
-            ))}
-          </select>
+        {/* Buyer inputs */}
+        <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 mb-8">
+          <div className="grid md:grid-cols-3 gap-4">
+            <label className="flex flex-col">
+              <span className="text-sm font-semibold mb-1">Your email (for receipts)</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="border rounded-lg px-3 py-2"
+                disabled={loading}
+              />
+            </label>
+
+            <label className="flex flex-col">
+              <span className="text-sm font-semibold mb-1">Minutes</span>
+              <input
+                type="number"
+                min="1"
+                max="240"
+                value={minutes}
+                onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
+                className="border rounded-lg px-3 py-2"
+                disabled={loading}
+              />
+            </label>
+
+            <label className="flex flex-col">
+              <span className="text-sm font-semibold mb-1">Promo code</span>
+              <input
+                value={promo}
+                onChange={(e) => setPromo(e.target.value)}
+                placeholder="TRY10"
+                className="border rounded-lg px-3 py-2"
+                disabled={loading}
+              />
+            </label>
+          </div>
+
+          {busy && (
+            <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <div className="text-sm text-amber-800 mb-3">
+                GPU is busy. You can still open checkout (we’ll start your job when it’s free), or join the waitlist:
+              </div>
+              <div className="grid md:grid-cols-3 gap-3">
+                <label className="flex flex-col">
+                  <span className="text-xs font-semibold mb-1">Email</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="border rounded-lg px-3 py-2"
+                  />
+                </label>
+                <label className="flex flex-col">
+                  <span className="text-xs font-semibold mb-1">Interested in</span>
+                  <select
+                    value={interest}
+                    onChange={(e) => setInterest(e.target.value)}
+                    className="border rounded-lg px-3 py-2"
+                  >
+                    <option value="sd">Stable Diffusion</option>
+                    <option value="whisper">Whisper ASR</option>
+                    <option value="llama">LLaMA Inference</option>
+                  </select>
+                </label>
+                <div className="flex items-end">
+                  <button
+                    onClick={joinWaitlist}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl"
+                  >
+                    Notify me
+                  </button>
+                </div>
+              </div>
+              {wlMsg && <div className="text-xs text-gray-700 mt-3">{wlMsg}</div>}
+            </div>
+          )}
         </div>
 
         {msg ? (
@@ -128,41 +210,38 @@ export default function Home() {
           </div>
         ) : null}
 
+        {/* Product cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {templates.map((t) => (
-            <div
-              key={t.key}
-              className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between"
-            >
+            <div key={t.key} className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between">
               <div>
                 <h2 className="text-xl font-bold mb-2">{t.name}</h2>
                 <p className="text-gray-600 mb-4">{t.desc}</p>
+                <p className="text-gray-800 font-semibold">
+                  Base price: ₹{t.price}{" "}
+                  {promo.trim().toUpperCase() === "TRY10" && (
+                    <span className="text-green-700 font-normal"> (₹100 off)</span>
+                  )}
+                </p>
               </div>
+
               <button
                 className={`mt-4 text-white px-4 py-2 rounded-xl ${
-                  disabledUI
-                    ? "bg-gray-400 cursor-not-allowed"
-                    : "bg-indigo-600 hover:bg-indigo-700"
+                  disabled ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
                 }`}
                 onClick={() => openRazorpay({ product: t.key, displayName: t.name })}
-                disabled={disabledUI}
+                disabled={disabled}
               >
-                {status === "available"
-                  ? loading
-                    ? "Opening Checkout..."
-                    : `Deploy for ₹${t.price}`
-                  : "GPU Busy"}
+                {loading ? "Opening Checkout..." : `Deploy ${t.name}`}
               </button>
             </div>
           ))}
         </div>
       </main>
 
-      {/* Contact Section */}
+      {/* Contact */}
       <section className="mt-16 border-t pt-10 pb-6 text-center text-sm text-gray-700">
-        <p className="mb-2">
-          💬 Looking for custom pricing, discounts, or rate concessions? Reach out:
-        </p>
+        <p className="mb-2">💬 Looking for custom pricing, discounts, or rate concessions? Reach out:</p>
         <p>
           Email:{" "}
           <a href="mailto:tvavinash@gmail.com" className="text-blue-600 hover:underline">
