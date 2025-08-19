@@ -2,6 +2,16 @@
 import nodemailer from "nodemailer";
 
 export default async function handler(req, res) {
+  // Health check so you can confirm the new code is deployed
+  if (req.method === "GET") {
+    return res.status(200).json({
+      ok: true,
+      supports: ["queued", "live"],
+      version: "notify-v2",
+      time: new Date().toISOString(),
+    });
+  }
+
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
 
   // shared-secret auth (must match Render)
@@ -12,7 +22,7 @@ export default async function handler(req, res) {
 
   const {
     email,
-    uri,            // present only for LIVE messages
+    uri,            // for LIVE messages only
     product = "GPU",
     minutes = 60,
     dry_run = false,
@@ -24,9 +34,9 @@ export default async function handler(req, res) {
 
   // SMTP defaults for Resend
   const SMTP_HOST = process.env.SMTP_HOST || "smtp.resend.com";
-  const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
+  const SMTP_PORT = Number(process.env.SMTP_PORT || 587); // STARTTLS default
   const SMTP_USER = process.env.SMTP_USER || "resend";
-  const SMTP_PASS = process.env.SMTP_PASS; // re_...
+  const SMTP_PASS = process.env.SMTP_PASS;                // re_...
   const FROM      = process.env.EMAIL_FROM || process.env.FROM_EMAIL || "Indianode <no-reply@indianode.com>";
 
   if (!SMTP_PASS) return res.status(500).json({ error: "smtp_not_configured" });
