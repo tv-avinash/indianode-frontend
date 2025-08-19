@@ -41,14 +41,13 @@ export default async function handler(req, res) {
     amountInRupees = Math.max(1, amountInRupees - 100);
   }
 
-  // Optional override: allow orders even if busy (set ALLOW_ORDERS_WHEN_BUSY=1)
+  // Allow orders even when busy if ALLOW_ORDERS_WHEN_BUSY=1
   const allowWhenBusy = String(process.env.ALLOW_ORDERS_WHEN_BUSY || "").trim() === "1";
   if (!allowWhenBusy && (await isGpuBusy(req))) {
     return res.status(409).json({ error: "gpu_busy" });
   }
 
-  const key_id =
-    process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+  const key_id = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
   const key_secret = process.env.RAZORPAY_KEY_SECRET;
 
   if (!key_id || !key_secret) {

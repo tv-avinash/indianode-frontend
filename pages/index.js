@@ -11,7 +11,7 @@ export default function Home() {
   const [promo, setPromo] = useState("");
 
   // Waitlist inputs / messages
-  const [interest, setInterest] = useState("sd"); // default product in waitlist
+  const [interest, setInterest] = useState("sd");
   const [wlMsg, setWlMsg] = useState("");
   const [msg, setMsg] = useState("");
 
@@ -27,6 +27,10 @@ export default function Home() {
     { key: "sd",      name: "Stable Diffusion", price: 200, desc: "Text-to-Image AI" },
     { key: "llama",   name: "LLaMA Inference",  price: 300, desc: "Run an LLM on GPU" },
   ];
+
+  // promo helper
+  const effectivePrice = (base) =>
+    Math.max(1, base - (promo.trim().toUpperCase() === "TRY10" ? 100 : 0));
 
   async function createOrder({ product, minutes, userEmail, promo }) {
     const r = await fetch("/api/order", {
@@ -165,7 +169,8 @@ export default function Home() {
           {busy && (
             <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
               <div className="text-sm text-amber-800 mb-3">
-                GPU is busy. You can still open checkout (we’ll start your job when it’s free), or join the waitlist:
+                GPU is busy. You can still pay to <b>join the queue</b> (we’ll email you updates), or join the
+                waitlist without paying:
               </div>
               <div className="grid md:grid-cols-3 gap-3">
                 <label className="flex flex-col">
@@ -212,30 +217,37 @@ export default function Home() {
 
         {/* Product cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {templates.map((t) => (
-            <div key={t.key} className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between">
-              <div>
-                <h2 className="text-xl font-bold mb-2">{t.name}</h2>
-                <p className="text-gray-600 mb-4">{t.desc}</p>
-                <p className="text-gray-800 font-semibold">
-                  Base price: ₹{t.price}{" "}
-                  {promo.trim().toUpperCase() === "TRY10" && (
-                    <span className="text-green-700 font-normal"> (₹100 off)</span>
-                  )}
-                </p>
-              </div>
+          {templates.map((t) => {
+            const displayPrice = effectivePrice(t.price);
+            return (
+              <div key={t.key} className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between">
+                <div>
+                  <h2 className="text-xl font-bold mb-2">{t.name}</h2>
+                  <p className="text-gray-600 mb-4">{t.desc}</p>
+                  <p className="text-gray-800 font-semibold">
+                    Price: ₹{displayPrice}{" "}
+                    {promo.trim().toUpperCase() === "TRY10" && (
+                      <span className="text-green-700 font-normal">(₹100 off applied)</span>
+                    )}
+                  </p>
+                </div>
 
-              <button
-                className={`mt-4 text-white px-4 py-2 rounded-xl ${
-                  disabled ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
-                }`}
-                onClick={() => openRazorpay({ product: t.key, displayName: t.name })}
-                disabled={disabled}
-              >
-                {loading ? "Opening Checkout..." : `Deploy ${t.name}`}
-              </button>
-            </div>
-          ))}
+                <button
+                  className={`mt-4 text-white px-4 py-2 rounded-xl ${
+                    disabled ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
+                  }`}
+                  onClick={() => openRazorpay({ product: t.key, displayName: t.name })}
+                  disabled={disabled}
+                >
+                  {loading
+                    ? "Opening Checkout..."
+                    : busy
+                    ? `Pay & Join Queue — ₹${displayPrice}`
+                    : `Deploy for ₹${displayPrice}`}
+                </button>
+              </div>
+            );
+          })}
         </div>
       </main>
 
