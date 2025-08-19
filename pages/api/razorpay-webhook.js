@@ -1,7 +1,5 @@
 // pages/api/razorpay-webhook.js
 import crypto from "crypto";
-
-// IMPORTANT: raw body required for HMAC
 export const config = { api: { bodyParser: false } };
 
 function readRawBody(req) {
@@ -20,25 +18,32 @@ export default async function handler(req, res) {
   if (!secret) return res.status(500).send("webhook_secret_missing");
 
   const raw = await readRawBody(req);
-  const signature = req.headers["x-razorpay-signature"];
-  const expected = crypto.createHmac("sha256", secret).update(raw).digest("hex");
-  if (signature !== expected) return res.status(401).send("invalid_signature");
+  const headerVal = req.headers["x-razorpay-signature"];
+  const signature = Array.isArray(headerVal) ? headerVal[0] : headerVal; // <-- robust
+  const expected  = crypto.createHmac("sha256", secret).update(raw).digest("hex");
+
+  if (signature !== expected) {
+    console.warn("SIG_MISMATCH", {
+      got: signature,
+      expected,
+      rawLen: raw.length,
+    });
+    return res.status(401).send("invalid_signature");
+  }
 
   const body = JSON.parse(raw.toString("utf8"));
   if (body?.event !== "payment.captured") return res.status(200).send("ignored");
 
-  const pay = body.payload.payment.entity;
+  const pay  = body.payload.payment.entity;
   const meta = pay.notes || {};
-
   console.log("✅ payment.captured", {
     payment_id: pay.id,
-    order_id: pay.order_id,
-    amount: pay.amount,
-    product: meta.product,
-    minutes: meta.minutes,
+    order_id:  pay.order_id,
+    amount:    pay.amount,
+    product:   meta.product,
+    minutes:   meta.minutes,
     userEmail: meta.userEmail,
   });
 
-  // Step 2: we'll call the deployer from here.
   return res.status(200).send("ok");
 }
