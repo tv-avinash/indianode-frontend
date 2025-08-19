@@ -21,12 +21,17 @@ export default async function handler(req, res) {
 
   const raw = await readRawBody(req);
   const headerVal = req.headers["x-razorpay-signature"];
-  const signature = Array.isArray(headerVal) ? headerVal[0] : headerVal;
+  const signature = Array.isArray(headerVal) ? headerVal[0] : headerVal; // robust
   const expected  = crypto.createHmac("sha256", secret).update(raw).digest("hex");
 
-  // 🔎 Debug mode: return what the server EXPECTS for this exact body
+  // DEBUG: return what the server expects for THIS exact body
   if (req.query?.debug === "1") {
-    return res.status(200).json({ expected, rawLen: raw.length, mode: process.env.VERCEL_ENV || "prod" });
+    console.log("WEBHOOK_DEBUG", {
+      env: process.env.VERCEL_ENV || "prod",
+      commit: process.env.VERCEL_GIT_COMMIT_SHA || "unknown",
+      rawLen: raw.length,
+    });
+    return res.status(200).json({ expected, rawLen: raw.length });
   }
 
   if (signature !== expected) {
