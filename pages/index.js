@@ -1,5 +1,4 @@
-// pages/index.js
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import Script from "next/script";
 
 export default function Home() {
@@ -8,17 +7,10 @@ export default function Home() {
 
   // Inputs
   const [email, setEmail] = useState("");
-  // Keep a string for the input (more reliable across browsers), derive a number for math.
-  const [minutesStr, setMinutesStr] = useState("60");
-  const minutes = useMemo(() => {
-    const n = parseInt(minutesStr, 10);
-    if (Number.isNaN(n)) return 60;
-    return Math.min(240, Math.max(1, n));
-  }, [minutesStr]);
-
+  const [minutesStr, setMinutesStr] = useState("60"); // keep as string for reliable typing
   const [promo, setPromo] = useState("");
 
-  // Waitlist inputs / messages
+  // Waitlist
   const [interest, setInterest] = useState("sd");
   const [wlMsg, setWlMsg] = useState("");
   const [msg, setMsg] = useState("");
@@ -30,26 +22,28 @@ export default function Home() {
       .catch(() => setStatus("offline"));
   }, []);
 
-  // Price (₹) for 60 minutes. We pro-rate from here.
+  // Parse minutes every render (no memo — keeps it super reactive)
+  const minutes = (() => {
+    const n = parseInt(minutesStr, 10);
+    if (Number.isNaN(n)) return 60;
+    return Math.min(240, Math.max(1, n));
+  })();
+
+  // Base ₹ for 60 minutes
   const price60 = { whisper: 100, sd: 200, llama: 300 };
 
-  const formatINR = (n) =>
-    new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 }).format(n);
+  const isTryPromo = (code) => {
+    const c = String(code || "").trim().toUpperCase();
+    return c === "TRY" || c === "TRY10";
+  };
 
-  // Accept TRY or TRY10 as promo
-  const isTryPromo = (code) =>
-    /^TRY(?:10)?$/i.test(String(code || "").trim());
-
-  function computePrice(key, mins, promoCode) {
-    const base = price60[key]; // ₹ for 60 min
-    if (!base) return 0;
+  const computePrice = (key, mins, code) => {
+    const base = price60[key] || 0;
     const m = Math.max(1, Number(mins || 60));
     let total = Math.ceil((base / 60) * m);
-    if (isTryPromo(promoCode)) {
-      total = Math.max(1, total - 100);
-    }
+    if (isTryPromo(code)) total = Math.max(1, total - 100);
     return total;
-  }
+  };
 
   const templates = [
     { key: "whisper", name: "Whisper ASR",      desc: "Speech-to-text on GPU" },
@@ -78,15 +72,13 @@ export default function Home() {
       setMsg("");
       setLoading(true);
 
-      if (typeof window === "undefined" || typeof window.Razorpay === "undefined") {
-        alert("Payment module not loaded yet. Please wait a moment and try again.");
+      if (!window?.Razorpay) {
+        alert("Payment module not loaded yet. Please try again in a moment.");
         return;
       }
 
       const userEmail = (email || "").trim();
-      if (!userEmail) {
-        setMsg("Tip: add your email so we can send your deploy URL + receipt.");
-      }
+      if (!userEmail) setMsg("Tip: add your email so we can send your deploy URL + receipt.");
 
       const order = await createOrder({ product, minutes, userEmail, promo });
 
@@ -143,7 +135,9 @@ export default function Home() {
   }
 
   const busy = status !== "available";
-  const disabled = loading; // allow checkout even when busy; backend enforces
+  const disabled = loading;
+
+  const formatINR = (n) => new Intl.NumberFormat("en-IN").format(n);
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -169,7 +163,8 @@ export default function Home() {
               <input
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onInput={(e) => setEmail(e.currentTarget.value)}
+                onChange={(e) => setEmail(e.currentTarget.value)}
                 placeholder="you@example.com"
                 className="border rounded-lg px-3 py-2"
                 disabled={loading}
@@ -182,10 +177,11 @@ export default function Home() {
                 type="number"
                 min="1"
                 max="240"
+                step="1"
                 value={minutesStr}
-                // Use both onInput and onChange for snappy updates across browsers
-                onInput={(e) => setMinutesStr(e.target.value)}
-                onChange={(e) => setMinutesStr(e.target.value)}
+                onInput={(e) => setMinutesStr(e.currentTarget.value)}
+                onChange={(e) => setMinutesStr(e.currentTarget.value)}
+                onKeyUp={(e) => setMinutesStr(e.currentTarget.value)}
                 className="border rounded-lg px-3 py-2"
                 disabled={loading}
               />
@@ -195,8 +191,9 @@ export default function Home() {
               <span className="text-sm font-semibold mb-1">Promo code</span>
               <input
                 value={promo}
-                onInput={(e) => setPromo(e.target.value)}
-                onChange={(e) => setPromo(e.target.value)}
+                onInput={(e) => setPromo(e.currentTarget.value)}
+                onChange={(e) => setPromo(e.currentTarget.value)}
+                onKeyUp={(e) => setPromo(e.currentTarget.value)}
                 placeholder="TRY or TRY10"
                 className="border rounded-lg px-3 py-2"
                 disabled={loading}
@@ -215,8 +212,8 @@ export default function Home() {
                   <input
                     type="email"
                     value={email}
-                    onInput={(e) => setEmail(e.target.value)}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onInput={(e) => setEmail(e.currentTarget.value)}
+                    onChange={(e) => setEmail(e.currentTarget.value)}
                     placeholder="you@example.com"
                     className="border rounded-lg px-3 py-2"
                   />
@@ -267,9 +264,7 @@ export default function Home() {
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
                     (₹{formatINR(price60[t.key])} for 60 min)
-                    {isTryPromo(promo) && (
-                      <span className="text-green-700"> — includes ₹100 off</span>
-                    )}
+                    {isTryPromo(promo) && <span className="text-green-700"> — includes ₹100 off</span>}
                   </p>
                 </div>
 
@@ -288,7 +283,6 @@ export default function Home() {
         </div>
       </main>
 
-      {/* Contact */}
       <section className="mt-16 border-t pt-10 pb-6 text-center text-sm text-gray-700">
         <p className="mb-2">💬 Looking for custom pricing, discounts, or rate concessions? Reach out:</p>
         <p>

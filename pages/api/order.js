@@ -1,4 +1,4 @@
-// pages/api/order.js — Razorpay via REST (minute-based pricing)
+// pages/api/order.js — Razorpay via REST (minute-based pricing + TRY/TRY10)
 
 function getSiteOrigin(req) {
   if (process.env.NEXT_PUBLIC_SITE_ORIGIN) return process.env.NEXT_PUBLIC_SITE_ORIGIN;
@@ -26,21 +26,22 @@ export default async function handler(req, res) {
 
   const { product, minutes, userEmail, promo } = req.body || {};
 
-  // Price for 60 minutes (rupees)
+  // Price for 60 minutes (₹)
   const PRICE_60 = { whisper: 100, sd: 200, llama: 300 };
   const base60 = PRICE_60[product];
-
   if (!product || !base60) {
     return res.status(400).json({ error: "invalid_product" });
   }
 
+  // Sanitize minutes
   const safeMinutes = Math.max(1, Number(minutes || 60));
 
-  // Compute pro-rata price (ceil to whole rupees)
+  // Pro-rata price rounded up to whole rupees
   let amountInRupees = Math.ceil((base60 / 60) * safeMinutes);
 
-  // Simple promo: TRY10 => ₹100 off (never below ₹1)
-  if (typeof promo === "string" && promo.trim().toUpperCase() === "TRY10") {
+  // Promo: TRY or TRY10 => ₹100 off (never below ₹1)
+  const promoCode = String(promo || "").trim().toUpperCase();
+  if (promoCode === "TRY" || promoCode === "TRY10") {
     amountInRupees = Math.max(1, amountInRupees - 100);
   }
 
@@ -50,10 +51,8 @@ export default async function handler(req, res) {
     return res.status(409).json({ error: "gpu_busy" });
   }
 
-  const key_id =
-    process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
+  const key_id = process.env.RAZORPAY_KEY_ID || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
   const key_secret = process.env.RAZORPAY_KEY_SECRET;
-
   if (!key_id || !key_secret) {
     return res.status(500).json({ error: "razorpay_creds_missing" });
   }
@@ -69,6 +68,8 @@ export default async function handler(req, res) {
       minutes: String(safeMinutes),
       userEmail: userEmail || "",
       promo: promo || "",
+      // (optional) keep the computed server price in notes for debugging
+      computed_rupees: String(amountInRupees),
     },
   };
 
@@ -92,7 +93,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: msg });
     }
 
-    return res.status(200).json(json);
+    return res.status(200).json(json); // Razorpay order object
   } catch (e) {
     return res.status(500).json({ error: e?.message || "order_error" });
   }
