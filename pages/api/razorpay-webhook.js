@@ -1,5 +1,7 @@
 // pages/api/razorpay-webhook.js
 import crypto from "crypto";
+
+// IMPORTANT: raw body required for HMAC
 export const config = { api: { bodyParser: false } };
 
 function readRawBody(req) {
@@ -12,22 +14,23 @@ function readRawBody(req) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).end();
+  if (req.method !== "POST") return res.status(405).send("use POST");
 
   const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
   if (!secret) return res.status(500).send("webhook_secret_missing");
 
   const raw = await readRawBody(req);
   const headerVal = req.headers["x-razorpay-signature"];
-  const signature = Array.isArray(headerVal) ? headerVal[0] : headerVal; // <-- robust
+  const signature = Array.isArray(headerVal) ? headerVal[0] : headerVal;
   const expected  = crypto.createHmac("sha256", secret).update(raw).digest("hex");
 
+  // 🔎 Debug mode: return what the server EXPECTS for this exact body
+  if (req.query?.debug === "1") {
+    return res.status(200).json({ expected, rawLen: raw.length, mode: process.env.VERCEL_ENV || "prod" });
+  }
+
   if (signature !== expected) {
-    console.warn("SIG_MISMATCH", {
-      got: signature,
-      expected,
-      rawLen: raw.length,
-    });
+    console.warn("SIG_MISMATCH", { got: signature, expected, rawLen: raw.length });
     return res.status(401).send("invalid_signature");
   }
 
