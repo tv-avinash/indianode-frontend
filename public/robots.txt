@@ -1,4 +1,4 @@
-﻿User-agent: *
+User-agent: *
 Allow: /
 
 Sitemap: https://www.indianode.com/sitemap.xml
