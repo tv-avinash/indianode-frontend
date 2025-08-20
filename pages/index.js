@@ -22,21 +22,29 @@ export default function Home() {
       .catch(() => setStatus("offline"));
   }, []);
 
-  // Price for 60 minutes (₹)
+  // “Price for 60 minutes” (₹)
   const price60 = { whisper: 100, sd: 200, llama: 300 };
 
-  // Compute ₹ for selected minutes (pro-rata; ceil to whole rupees)
-  function computePrice(key, mins, promoCode) {
+  // Helpers
+  function computeBase(key, mins) {
     const base = price60[key];
     if (!base) return 0;
     const m = Math.max(1, Number(mins || 60));
-    let total = Math.ceil((base / 60) * m);
-
+    return Math.ceil((base / 60) * m);
+  }
+  function computeDiscount(key, mins, promoCode) {
     const code = String(promoCode || "").trim().toUpperCase();
     if (code === "TRY" || code === "TRY10") {
-      total = Math.max(1, total - 5);
+      const base = computeBase(key, mins);
+      // ₹5 off, never below ₹1 total
+      return Math.min(5, Math.max(0, base - 1));
     }
-    return total;
+    return 0;
+  }
+  function computePrice(key, mins, promoCode) {
+    const base = computeBase(key, mins);
+    const off = computeDiscount(key, mins, promoCode);
+    return Math.max(1, base - off);
   }
 
   const templates = [
@@ -67,9 +75,7 @@ export default function Home() {
       setLoading(true);
 
       const userEmail = (email || "").trim();
-      if (!userEmail) {
-        setMsg("Tip: add your email so we can send your deploy URL + receipt.");
-      }
+      if (!userEmail) setMsg("Tip: add your email so we can send your deploy URL + receipt.");
 
       const order = await createOrder({ product, minutes, userEmail, promo });
 
@@ -232,20 +238,30 @@ export default function Home() {
         {/* Product cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {templates.map((t) => {
-            const total = computePrice(t.key, minutes, promo);
-            const promoActive = String(promo).trim().toUpperCase() === "TRY" || String(promo).trim().toUpperCase() === "TRY10";
+            const base = computeBase(t.key, minutes);
+            const off  = computeDiscount(t.key, minutes, promo);
+            const total = base - off;
+
             return (
               <div key={t.key} className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between">
                 <div>
                   <h2 className="text-xl font-bold mb-2">{t.name}</h2>
                   <p className="text-gray-600 mb-3">{t.desc}</p>
-                  <p className="text-gray-800">
-                    <span className="font-semibold">Price for {minutes} min:</span> ₹{total}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-1">
-                    (₹{price60[t.key]} for 60 min)
-                    {promoActive && <span className="text-green-700"> — includes ₹5 off</span>}
-                  </p>
+
+                  {off > 0 ? (
+                    <p className="text-gray-800">
+                      <span className="font-semibold">Price for {minutes} min:</span>{" "}
+                      <span className="line-through text-gray-500">₹{base}</span>{" "}
+                      <span className="font-semibold">₹{total}</span>{" "}
+                      <span className="text-green-700 text-sm">(₹{off} off)</span>
+                    </p>
+                  ) : (
+                    <p className="text-gray-800">
+                      <span className="font-semibold">Price for {minutes} min:</span> ₹{total}
+                    </p>
+                  )}
+
+                  <p className="text-xs text-gray-500 mt-1">(₹{price60[t.key]} for 60 min)</p>
                 </div>
 
                 <button
