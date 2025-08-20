@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import Script from "next/script";
+import Head from "next/head";
 
 export default function Home() {
   const [status, setStatus] = useState("checking...");
@@ -168,221 +169,269 @@ export default function Home() {
   const disabled = loading;
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      <Script src="https://checkout.razorpay.com/v1/checkout.js" />
+    <>
+      <Head>
+        <title>Indianode — GPU Hosting for SDLS, Whisper & LLM on RTX 3090</title>
+        <meta
+          name="description"
+          content="Run SDLS, Whisper, and LLM inference on NVIDIA RTX 3090 (24GB). Affordable pay-per-minute GPU hosting for AI developers worldwide."
+        />
+        <link rel="canonical" href="https://www.indianode.com/" />
 
-      <header className="p-6 bg-gray-900 text-white text-center text-2xl font-bold">
-        Indianode GPU Cloud
-      </header>
+        {/* Open Graph / Twitter */}
+        <meta property="og:title" content="Indianode — GPU Hosting on RTX 3090" />
+        <meta property="og:description" content="GPU hosting for SDLS, Whisper, and LLM workloads on 24GB RTX 3090." />
+        <meta property="og:type" content="website" />
+        <meta property="og:url" content="https://www.indianode.com/" />
+        <meta name="twitter:card" content="summary_large_image" />
 
-      <main className="p-8 max-w-5xl mx-auto">
-        <h1 className="text-3xl font-bold mb-3 text-center">
-          3090 GPU on demand • India & International payments
-        </h1>
-        <p className="text-center mb-6 text-lg">
-          Current GPU Status: <span className="font-semibold">{status}</span>
-        </p>
+        {/* Organization + WebSite JSON-LD */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "Organization",
+              name: "Indianode",
+              url: "https://www.indianode.com",
+              logo: "https://www.indianode.com/logo.png"
+            }),
+          }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: "Indianode",
+              url: "https://www.indianode.com",
+              potentialAction: {
+                "@type": "SearchAction",
+                target: "https://www.indianode.com/?q={search_term_string}",
+                "query-input": "required name=search_term_string"
+              }
+            }),
+          }}
+        />
+      </Head>
 
-        {/* Buyer inputs */}
-        <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 mb-8">
-          <div className="grid md:grid-cols-3 gap-4">
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold mb-1">
-                Your email (for receipts)
-              </span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="border rounded-lg px-3 py-2"
-                disabled={loading}
-              />
-            </label>
+      <div className="min-h-screen bg-gray-50 text-gray-900">
+        <Script src="https://checkout.razorpay.com/v1/checkout.js" />
 
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold mb-1">Minutes</span>
-              <input
-                type="number"
-                min="1"
-                max="240"
-                value={minutes}
-                onChange={(e) =>
-                  setMinutes(Math.max(1, Number(e.target.value || 1)))
-                }
-                className="border rounded-lg px-3 py-2"
-                disabled={loading}
-              />
-            </label>
+        <header className="p-6 bg-gray-900 text-white text-center text-2xl font-bold">
+          Indianode GPU Cloud
+        </header>
 
-            <label className="flex flex-col">
-              <span className="text-sm font-semibold mb-1">Promo code</span>
-              <input
-                value={promo}
-                onChange={(e) => setPromo(e.target.value)}
-                placeholder="TRY / TRY10"
-                className="border rounded-lg px-3 py-2"
-                disabled={loading}
-              />
-            </label>
+        <main className="p-8 max-w-5xl mx-auto">
+          <h1 className="text-3xl font-bold mb-3 text-center">
+            3090 GPU on demand • India & International payments
+          </h1>
+          <p className="text-center mb-6 text-lg">
+            Current GPU Status: <span className="font-semibold">{status}</span>
+          </p>
+
+          {/* Buyer inputs */}
+          <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 mb-8">
+            <div className="grid md:grid-cols-3 gap-4">
+              <label className="flex flex-col">
+                <span className="text-sm font-semibold mb-1">
+                  Your email (for receipts)
+                </span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="border rounded-lg px-3 py-2"
+                  disabled={loading}
+                />
+              </label>
+
+              <label className="flex flex-col">
+                <span className="text-sm font-semibold mb-1">Minutes</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="240"
+                  value={minutes}
+                  onChange={(e) =>
+                    setMinutes(Math.max(1, Number(e.target.value || 1)))
+                  }
+                  className="border rounded-lg px-3 py-2"
+                  disabled={loading}
+                />
+              </label>
+
+              <label className="flex flex-col">
+                <span className="text-sm font-semibold mb-1">Promo code</span>
+                <input
+                  value={promo}
+                  onChange={(e) => setPromo(e.target.value)}
+                  placeholder="TRY / TRY10"
+                  className="border rounded-lg px-3 py-2"
+                  disabled={loading}
+                />
+              </label>
+            </div>
+
+            {busy && (
+              <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <div className="text-sm text-amber-800 mb-3">
+                  GPU is busy. You can still pay now (we’ll queue it) or join the
+                  waitlist:
+                </div>
+                <div className="grid md:grid-cols-3 gap-3">
+                  <label className="flex flex-col">
+                    <span className="text-xs font-semibold mb-1">Email</span>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      className="border rounded-lg px-3 py-2"
+                    />
+                  </label>
+                  <label className="flex flex-col">
+                    <span className="text-xs font-semibold mb-1">
+                      Interested in
+                    </span>
+                    <select
+                      value={interest}
+                      onChange={(e) => setInterest(e.target.value)}
+                      className="border rounded-lg px-3 py-2"
+                    >
+                      <option value="sd">Stable Diffusion</option>
+                      <option value="whisper">Whisper ASR</option>
+                      <option value="llama">LLaMA Inference</option>
+                    </select>
+                  </label>
+                  <div className="flex items	end">
+                    <button
+                      onClick={joinWaitlist}
+                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl"
+                    >
+                      Notify me
+                    </button>
+                  </div>
+                </div>
+                {wlMsg && <div className="text-xs text-gray-700 mt-3">{wlMsg}</div>}
+              </div>
+            )}
           </div>
 
-          {busy && (
-            <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <div className="text-sm text-amber-800 mb-3">
-                GPU is busy. You can still pay now (we’ll queue it) or join the
-                waitlist:
-              </div>
-              <div className="grid md:grid-cols-3 gap-3">
-                <label className="flex flex-col">
-                  <span className="text-xs font-semibold mb-1">Email</span>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="border rounded-lg px-3 py-2"
-                  />
-                </label>
-                <label className="flex flex-col">
-                  <span className="text-xs font-semibold mb-1">
-                    Interested in
-                  </span>
-                  <select
-                    value={interest}
-                    onChange={(e) => setInterest(e.target.value)}
-                    className="border rounded-lg px-3 py-2"
-                  >
-                    <option value="sd">Stable Diffusion</option>
-                    <option value="whisper">Whisper ASR</option>
-                    <option value="llama">LLaMA Inference</option>
-                  </select>
-                </label>
-                <div className="flex items-end">
-                  <button
-                    onClick={joinWaitlist}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl"
-                  >
-                    Notify me
-                  </button>
-                </div>
-              </div>
-              {wlMsg && <div className="text-xs text-gray-700 mt-3">{wlMsg}</div>}
+          {msg && (
+            <div className="max-w-xl mx-auto mb-6 text-center text-sm text-amber-700 bg-amber-100 border border-amber-200 rounded-xl px-4 py-2">
+              {msg}
             </div>
           )}
-        </div>
 
-        {msg && (
-          <div className="max-w-xl mx-auto mb-6 text-center text-sm text-amber-700 bg-amber-100 border border-amber-200 rounded-xl px-4 py-2">
-            {msg}
-          </div>
-        )}
+          {/* Product cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {templates.map((t) => {
+              const inr = priceInrFor(t.key, minutes);
+              const usd = priceUsdFromInr(inr);
+              const offInr = promoActive ? PROMO_OFF_INR : 0;
+              const offUsd = promoActive ? priceUsdFromInr(PROMO_OFF_INR) : 0;
 
-        {/* Product cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {templates.map((t) => {
-            const inr = priceInrFor(t.key, minutes);
-            const usd = priceUsdFromInr(inr);
-            const offInr = promoActive ? PROMO_OFF_INR : 0;
-            const offUsd = promoActive ? priceUsdFromInr(PROMO_OFF_INR) : 0;
+              return (
+                <div
+                  key={t.key}
+                  className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between"
+                >
+                  <div>
+                    <h2 className="text-xl font-bold mb-2">{t.name}</h2>
+                    <p className="text-gray-600 mb-3">{t.desc}</p>
 
-            return (
-              <div
-                key={t.key}
-                className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between"
-              >
-                <div>
-                  <h2 className="text-xl font-bold mb-2">{t.name}</h2>
-                  <p className="text-gray-600 mb-3">{t.desc}</p>
-
-                  <p className="text-gray-800">
-                    <span className="font-semibold">
-                      Price for {minutes} min:
-                    </span>{" "}
-                    ₹{inr} / ${usd.toFixed(2)}
-                  </p>
-
-                  {promoActive && (
-                    <p className="text-xs text-green-700 mt-1">
-                      Includes promo: −₹{offInr} (≈${offUsd.toFixed(2)})
+                    <p className="text-gray-800">
+                      <span className="font-semibold">
+                        Price for {minutes} min:
+                      </span>{" "}
+                      ₹{inr} / ${usd.toFixed(2)}
                     </p>
-                  )}
 
-                  <p className="text-xs text-gray-500 mt-1">
-                    (Base: ₹{price60[t.key]} for 60 min)
-                  </p>
-                </div>
+                    {promoActive && (
+                      <p className="text-xs text-green-700 mt-1">
+                        Includes promo: −₹{offInr} (≈${offUsd.toFixed(2)})
+                      </p>
+                    )}
 
-                <div className="grid grid-cols-1 gap-2 mt-4">
-                  <button
-                    className={`text-white px-4 py-2 rounded-xl ${
-                      disabled
-                        ? "bg-gray-400 cursor-not-allowed"
-                        : "bg-indigo-600 hover:bg-indigo-700"
-                    }`}
-                    onClick={() =>
-                      payWithRazorpay({ product: t.key, displayName: t.name })
-                    }
-                    disabled={disabled}
-                  >
-                    Pay ₹{inr} • Razorpay (INR)
-                  </button>
+                    <p className="text-xs text-gray-500 mt-1">
+                      (Base: ₹{price60[t.key]} for 60 min)
+                    </p>
+                  </div>
 
-                  {enablePayPal && (
+                  <div className="grid grid-cols-1 gap-2 mt-4">
                     <button
                       className={`text-white px-4 py-2 rounded-xl ${
                         disabled
                           ? "bg-gray-400 cursor-not-allowed"
-                          : "bg-slate-700 hover:bg-slate-800"
+                          : "bg-indigo-600 hover:bg-indigo-700"
                       }`}
                       onClick={() =>
-                        payWithPayPal({ product: t.key, amountUsd: usd })
+                        payWithRazorpay({ product: t.key, displayName: t.name })
                       }
                       disabled={disabled}
                     >
-                      Pay ${usd.toFixed(2)} • PayPal (USD)
+                      Pay ₹{inr} • Razorpay (INR)
                     </button>
-                  )}
 
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Billed in INR via Razorpay. USD shown is an approximate
-                    amount based on today’s rate.
-                  </p>
+                    {enablePayPal && (
+                      <button
+                        className={`text-white px-4 py-2 rounded-xl ${
+                          disabled
+                            ? "bg-gray-400 cursor-not-allowed"
+                            : "bg-slate-700 hover:bg-slate-800"
+                        }`}
+                        onClick={() =>
+                          payWithPayPal({ product: t.key, amountUsd: usd })
+                        }
+                        disabled={disabled}
+                      >
+                        Pay ${usd.toFixed(2)} • PayPal (USD)
+                      </button>
+                    )}
+
+                    <p className="text-[11px] text-gray-500 mt-1">
+                      Billed in INR via Razorpay. USD shown is an approximate
+                      amount based on today’s rate.
+                    </p>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      </main>
+              );
+            })}
+          </div>
+        </main>
 
-      <section className="mt-16 border-t pt-10 pb-6 text-center text-sm text-gray-700">
-        <p className="mb-2">
-          💬 Looking for custom pricing, discounts, or rate concessions? Reach
-          out:
-        </p>
-        <p>
-          Email:{" "}
-          <a
-            href="mailto:tvavinash@gmail.com"
-            className="text-blue-600 hover:underline"
-          >
-            tvavinash@gmail.com
-          </a>
-        </p>
-        <p>
-          Phone:{" "}
-          <a href="tel:+919902818004" className="text-blue-600 hover:underline">
-            +919902818004
-          </a>
-        </p>
-        <p className="mt-3 text-xs text-gray-400">
-          We usually reply within 24 hours.
-        </p>
-      </section>
+        <section className="mt-16 border-t pt-10 pb-6 text-center text-sm text-gray-700">
+          <p className="mb-2">
+            💬 Looking for custom pricing, discounts, or rate concessions? Reach
+            out:
+          </p>
+          <p>
+            Email:{" "}
+            <a
+              href="mailto:tvavinash@gmail.com"
+              className="text-blue-600 hover:underline"
+            >
+              tvavinash@gmail.com
+            </a>
+          </p>
+          <p>
+            Phone:{" "}
+            <a href="tel:+919902818004" className="text-blue-600 hover:underline">
+              +919902818004
+            </a>
+          </p>
+          <p className="mt-3 text-xs text-gray-400">
+            We usually reply within 24 hours.
+          </p>
+        </section>
 
-      <footer className="p-4 text-center text-sm text-gray-600">
-        © 2025 Indianode
-      </footer>
-    </div>
+        <footer className="p-4 text-center text-sm text-gray-600">
+          © 2025 Indianode
+        </footer>
+      </div>
+    </>
   );
 }
