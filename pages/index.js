@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Script from "next/script";
 
 export default function Home() {
@@ -13,6 +13,12 @@ export default function Home() {
   const [wlMsg, setWlMsg] = useState("");
   const [msg, setMsg] = useState("");
 
+  // Currency + FX
+  const [fx, setFx] = useState(0.012); // INR->USD
+  useEffect(() => {
+    fetch("/api/fx").then(r=>r.json()).then(j=>setFx(Number(j.rate)||0.012)).catch(()=>{});
+  }, []);
+
   useEffect(() => {
     fetch("/api/status")
       .then((res) => res.json())
@@ -20,38 +26,29 @@ export default function Home() {
       .catch(() => setStatus("offline"));
   }, []);
 
-  // “Price for 60 minutes” (₹)
-  const price60 = { whisper: 100, sd: 200, llama: 300 };
-  // Keep UI discount consistent with backend (env or default 5)
-  const DISCOUNT_RUPEES = Number(process.env.NEXT_PUBLIC_PROMO_FLAT_OFF_RUPEES || 5);
+  const price60 = { whisper: 100, sd: 200, llama: 300 }; // INR for 60 min
+  const PROMO_OFF_INR = 5; // ₹5 off
+  const promoCode = (promo || "").trim().toUpperCase();
+  const promoActive = promoCode === "TRY10" || promoCode === "TRY"; // show both in UI
 
-  function computeBase(key, mins) {
-    const base = price60[key];
-    if (!base) return 0;
+  function priceInrFor(key, mins) {
+    const base = price60[key]; if (!base) return 0;
     const m = Math.max(1, Number(mins || 60));
-    return Math.ceil((base / 60) * m);
+    let total = Math.ceil((base / 60) * m);
+    if (promoActive) total = Math.max(1, total - PROMO_OFF_INR);
+    return total;
   }
-  function computeDiscount(key, mins, promoCode) {
-    const code = String(promoCode || "").trim().toUpperCase();
-    if ((code === "TRY" || code === "TRY10") && DISCOUNT_RUPEES > 0) {
-      const base = computeBase(key, mins);
-      return Math.min(DISCOUNT_RUPEES, Math.max(0, base - 1)); // never go below ₹1 total
-    }
-    return 0;
-  }
-  function computePrice(key, mins, promoCode) {
-    const base = computeBase(key, mins);
-    const off = computeDiscount(key, mins, promoCode);
-    return Math.max(1, base - off);
+  function priceUsdFromInr(inr) {
+    return Math.round((inr * fx + Number.EPSILON) * 100) / 100; // 2dp
   }
 
-  const templates = [
+  const templates = useMemo(() => ([
     { key: "whisper", name: "Whisper ASR",      desc: "Speech-to-text on GPU" },
     { key: "sd",      name: "Stable Diffusion", desc: "Text-to-Image AI" },
     { key: "llama",   name: "LLaMA Inference",  desc: "Run an LLM on GPU" },
-  ];
+  ]), []);
 
-  async function createOrder({ product, minutes, userEmail, promo }) {
+  async function createRazorpayOrder({ product, minutes, userEmail }) {
     const r = await fetch("/api/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -64,18 +61,16 @@ export default function Home() {
       }
       throw new Error(data?.error || "Order creation failed");
     }
-    return data;
+    return data; // Razorpay order
   }
 
-  async function openRazorpay({ product, displayName }) {
+  async function payWithRazorpay({ product, displayName }) {
     try {
-      setMsg("");
-      setLoading(true);
-
+      setMsg(""); setLoading(true);
       const userEmail = (email || "").trim();
       if (!userEmail) setMsg("Tip: add your email so we can send your deploy URL + receipt.");
 
-      const order = await createOrder({ product, minutes, userEmail, promo });
+      const order = await createRazorpayOrder({ product, minutes, userEmail });
 
       const options = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_xxxxxx",
@@ -85,20 +80,33 @@ export default function Home() {
         name: "Indianode Cloud",
         description: `Deployment for ${displayName} (${minutes} min)`,
         prefill: userEmail ? { email: userEmail } : undefined,
-        notes: { minutes: String(minutes), product, email: userEmail, promo: (promo || "").trim() },
+        notes: { minutes: String(minutes), product, email: userEmail, promo: promoCode },
         theme: { color: "#111827" },
         handler: function (response) {
           alert("Payment success: " + response.razorpay_payment_id);
         },
       };
-
       const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", function (resp) {
-        alert(resp?.error?.description || "Payment failed");
-      });
+      rzp.on("payment.failed", (resp) => alert(resp?.error?.description || "Payment failed"));
       rzp.open();
     } catch (e) {
       alert(e.message || "Something went wrong");
+    } finally { setLoading(false); }
+  }
+
+  async function payWithPayPal({ product, amountUsd }) {
+    try {
+      setLoading(true);
+      const r = await fetch("/api/paypal/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product, minutes, amountUsd }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error || "paypal_create_failed");
+      window.location.href = j.approveUrl; // redirect to PayPal
+    } catch (e) {
+      alert(e.message || "PayPal error");
     } finally {
       setLoading(false);
     }
@@ -114,7 +122,7 @@ export default function Home() {
           email,
           product: interest,
           minutes,
-          note: (promo?.trim().toUpperCase() === "TRY" || promo?.trim().toUpperCase() === "TRY10") ? "Promo applied" : "",
+          note: promoActive ? `Promo ${promoCode} user` : "",
         }),
       });
       if (!r.ok) throw new Error("waitlist_failed");
@@ -130,10 +138,15 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <Script src="https://checkout.razorpay.com/v1/checkout.js" />
-      <header className="p-6 bg-gray-900 text-white text-center text-2xl font-bold">Indianode GPU Cloud</header>
+
+      <header className="p-6 bg-gray-900 text-white text-center text-2xl font-bold">
+        Indianode GPU Cloud
+      </header>
 
       <main className="p-8 max-w-5xl mx-auto">
-        <h1 className="text-3xl font-bold mb-3 text-center">3090 GPU on demand • India billing • deploy in minutes</h1>
+        <h1 className="text-3xl font-bold mb-3 text-center">
+          3090 GPU on demand • India & International payments
+        </h1>
         <p className="text-center mb-6 text-lg">
           Current GPU Status: <span className="font-semibold">{status}</span>
         </p>
@@ -143,38 +156,46 @@ export default function Home() {
           <div className="grid md:grid-cols-3 gap-4">
             <label className="flex flex-col">
               <span className="text-sm font-semibold mb-1">Your email (for receipts)</span>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="border rounded-lg px-3 py-2" disabled={loading} />
+              <input type="email" value={email} onChange={(e)=>setEmail(e.target.value)}
+                     placeholder="you@example.com" className="border rounded-lg px-3 py-2" disabled={loading}/>
             </label>
             <label className="flex flex-col">
               <span className="text-sm font-semibold mb-1">Minutes</span>
-              <input type="number" min="1" max="240" value={minutes} onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))} className="border rounded-lg px-3 py-2" disabled={loading} />
+              <input type="number" min="1" max="240" value={minutes}
+                     onChange={(e)=>setMinutes(Math.max(1, Number(e.target.value||1)))}
+                     className="border rounded-lg px-3 py-2" disabled={loading}/>
             </label>
             <label className="flex flex-col">
               <span className="text-sm font-semibold mb-1">Promo code</span>
-              <input value={promo} onChange={(e) => setPromo(e.target.value)} placeholder="TRY or TRY10" className="border rounded-lg px-3 py-2" disabled={loading} />
+              <input value={promo} onChange={(e)=>setPromo(e.target.value)}
+                     placeholder="TRY / TRY10" className="border rounded-lg px-3 py-2" disabled={loading}/>
             </label>
           </div>
 
           {busy && (
             <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
               <div className="text-sm text-amber-800 mb-3">
-                GPU is busy. You can still open checkout (we’ll start your job when it’s free), or join the waitlist:
+                GPU is busy. You can still pay now (we’ll queue it) or join the waitlist:
               </div>
               <div className="grid md:grid-cols-3 gap-3">
                 <label className="flex flex-col">
                   <span className="text-xs font-semibold mb-1">Email</span>
-                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="border rounded-lg px-3 py-2" />
+                  <input type="email" value={email} onChange={(e)=>setEmail(e.target.value)}
+                         placeholder="you@example.com" className="border rounded-lg px-3 py-2"/>
                 </label>
                 <label className="flex flex-col">
                   <span className="text-xs font-semibold mb-1">Interested in</span>
-                  <select value={interest} onChange={(e) => setInterest(e.target.value)} className="border rounded-lg px-3 py-2">
+                  <select value={interest} onChange={(e)=>setInterest(e.target.value)} className="border rounded-lg px-3 py-2">
                     <option value="sd">Stable Diffusion</option>
                     <option value="whisper">Whisper ASR</option>
                     <option value="llama">LLaMA Inference</option>
                   </select>
                 </label>
                 <div className="flex items-end">
-                  <button onClick={joinWaitlist} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl">Notify me</button>
+                  <button onClick={joinWaitlist}
+                          className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl">
+                    Notify me
+                  </button>
                 </div>
               </div>
               {wlMsg && <div className="text-xs text-gray-700 mt-3">{wlMsg}</div>}
@@ -182,40 +203,53 @@ export default function Home() {
           )}
         </div>
 
-        {msg ? <div className="max-w-xl mx-auto mb-6 text-center text-sm text-amber-700 bg-amber-100 border border-amber-200 rounded-xl px-4 py-2">{msg}</div> : null}
+        {msg && (
+          <div className="max-w-xl mx-auto mb-6 text-center text-sm text-amber-700 bg-amber-100 border border-amber-200 rounded-xl px-4 py-2">
+            {msg}
+          </div>
+        )}
 
         {/* Product cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {templates.map((t) => {
-            const base = computeBase(t.key, minutes);
-            const off  = computeDiscount(t.key, minutes, promo);
-            const total = Math.max(1, base - off);
+            const inr = priceInrFor(t.key, minutes);
+            const usd = priceUsdFromInr(inr);
+            const offInr = promoActive ? 5 : 0;
+            const offUsd = promoActive ? priceUsdFromInr(5) : 0;
             return (
               <div key={t.key} className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between">
                 <div>
                   <h2 className="text-xl font-bold mb-2">{t.name}</h2>
                   <p className="text-gray-600 mb-3">{t.desc}</p>
-                  {off > 0 ? (
-                    <p className="text-gray-800">
-                      <span className="font-semibold">Price for {minutes} min:</span>{" "}
-                      <span className="line-through text-gray-500">₹{base}</span>{" "}
-                      <span className="font-semibold">₹{total}</span>{" "}
-                      <span className="text-green-700 text-sm">(₹{off} off)</span>
-                    </p>
-                  ) : (
-                    <p className="text-gray-800">
-                      <span className="font-semibold">Price for {minutes} min:</span> ₹{total}
+                  <p className="text-gray-800">
+                    <span className="font-semibold">Price for {minutes} min:</span>
+                    {" "}₹{inr} / ${usd.toFixed(2)}
+                  </p>
+                  {promoActive && (
+                    <p className="text-xs text-green-700 mt-1">
+                      Includes promo: −₹{offInr} (≈${offUsd.toFixed(2)})
                     </p>
                   )}
-                  <p className="text-xs text-gray-500 mt-1">(₹{price60[t.key]} for 60 min)</p>
+                  <p className="text-xs text-gray-500 mt-1">(Base: ₹{price60[t.key]} for 60 min)</p>
                 </div>
-                <button
-                  className={`mt-4 text-white px-4 py-2 rounded-xl ${disabled ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"}`}
-                  onClick={() => openRazorpay({ product: t.key, displayName: t.name })}
-                  disabled={disabled}
-                >
-                  {loading ? "Opening Checkout..." : `Pay ₹${total} • Deploy ${t.name}`}
-                </button>
+
+                <div className="grid grid-cols-1 gap-2 mt-4">
+                  <button
+                    className={`text-white px-4 py-2 rounded-xl ${disabled ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"}`}
+                    onClick={() => payWithRazorpay({ product: t.key, displayName: t.name })}
+                    disabled={disabled}
+                  >
+                    Pay ₹{inr} • Razorpay (INR)
+                  </button>
+
+                  <button
+                    className={`text-white px-4 py-2 rounded-xl ${disabled ? "bg-gray-400 cursor-not-allowed" : "bg-slate-700 hover:bg-slate-800"}`}
+                    onClick={() => payWithPayPal({ product: t.key, amountUsd: usd })}
+                    disabled={disabled}
+                  >
+                    Pay ${usd.toFixed(2)} • PayPal (USD)
+                  </button>
+                </div>
               </div>
             );
           })}
