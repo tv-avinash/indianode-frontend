@@ -1,14 +1,22 @@
 // pages/robots.txt.js
-export default function handler(req, res) {
-  const txt = [
-    "User-agent: *",
-    "Allow: /",
-    "",
-    "Sitemap: https://www.indianode.com/sitemap.xml",
-    ""
-  ].join("\n");
+export async function getServerSideProps({ res }) {
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_ORIGIN ||
+    'https://www.indianode.com';
 
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.setHeader("Cache-Control", "s-maxage=86400, stale-while-revalidate=604800");
-  res.status(200).send(txt);
+  const body =
+`User-agent: *
+Allow: /
+
+Sitemap: ${origin}/sitemap.xml
+`;
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=3600'); // 1h
+  res.write(body);
+  res.end();
+
+  return { props: {} };
 }
+
+export default function Robots() { return null; }
