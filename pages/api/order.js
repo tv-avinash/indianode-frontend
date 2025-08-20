@@ -1,4 +1,4 @@
-// pages/api/order.js — Razorpay via REST (minute-based + ₹5 promo)
+// pages/api/order.js — Razorpay via REST (minute-based + ₹5 promo + calc breakdown)
 
 function getSiteOrigin(req) {
   if (process.env.NEXT_PUBLIC_SITE_ORIGIN) return process.env.NEXT_PUBLIC_SITE_ORIGIN;
@@ -14,7 +14,8 @@ async function isGpuBusy(req) {
     const j = await r.json();
     return j.status !== "available";
   } catch {
-    return true; // fail-safe
+    // Fail-safe: if status check fails, treat as busy (prevents over-selling)
+    return true;
   }
 }
 
@@ -25,26 +26,29 @@ export default async function handler(req, res) {
 
   const { product, minutes, userEmail, promo } = req.body || {};
 
-  // Price for 60 minutes (₹)
+  // Base price for 60 minutes (₹)
   const PRICE_60 = { whisper: 100, sd: 200, llama: 300 };
   const base60 = PRICE_60[product];
   if (!product || !base60) {
     return res.status(400).json({ error: "invalid_product" });
   }
 
-  const safeMinutes = Math.max(1, Number(minutes || 60));
+  // Clamp minutes to a reasonable range
+  const safeMinutes = Math.max(1, Math.min(240, Number(minutes || 60)));
 
-  // Pro-rata pricing (ceil to whole ₹)
-  let amountInRupees = Math.ceil((base60 / 60) * safeMinutes);
+  // Pro-rata gross (ceil to whole ₹)
+  const gross = Math.ceil((base60 / 60) * safeMinutes);
 
-  // ✅ Flat promo (₹5) for TRY or TRY10 (never below ₹1)
+  // Flat promo (default ₹5) for TRY or TRY10 — never below ₹1
   const DISCOUNT_RUPEES = Number(process.env.PROMO_FLAT_OFF_RUPEES || 5);
   const code = String(promo || "").trim().toUpperCase();
-  if ((code === "TRY" || code === "TRY10") && DISCOUNT_RUPEES > 0) {
-    amountInRupees = Math.max(1, amountInRupees - DISCOUNT_RUPEES);
-  }
+  const promoEligible = code === "TRY" || code === "TRY10";
+  const discount = promoEligible ? Math.max(0, DISCOUNT_RUPEES) : 0;
 
-  // Optional: block orders when busy unless allowed
+  // Net payable (₹)
+  const amountInRupees = Math.max(1, gross - discount);
+
+  // Optional: block orders when busy unless explicitly allowed
   const allowWhenBusy = String(process.env.ALLOW_ORDERS_WHEN_BUSY || "").trim() === "1";
   if (!allowWhenBusy && (await isGpuBusy(req))) {
     return res.status(409).json({ error: "gpu_busy" });
@@ -67,23 +71,46 @@ export default async function handler(req, res) {
       minutes: String(safeMinutes),
       userEmail: userEmail || "",
       promo: promo || "",
+      // tiny server-side calc trail (all strings)
+      calc_base60: String(base60),
+      calc_gross: String(gross),
+      calc_discount: String(discount),
+      calc_net: String(amountInRupees),
     },
   };
 
   try {
     const resp = await fetch("https://api.razorpay.com/v1/orders", {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Basic ${auth}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Basic ${auth}`,
+      },
       body: JSON.stringify(body),
     });
 
     const json = await resp.json();
     if (!resp.ok) {
-      const msg = json?.error?.description || json?.error?.reason || `order_failed_${resp.status}`;
+      const msg =
+        json?.error?.description ||
+        json?.error?.reason ||
+        `order_failed_${resp.status}`;
       return res.status(500).json({ error: msg });
     }
 
-    return res.status(200).json(json);
+    // Return Razorpay order along with pricing breakdown for the UI
+    return res.status(200).json({
+      ...json,
+      calc: {
+        base60,
+        minutes: safeMinutes,
+        gross,
+        discount,
+        net: amountInRupees,
+        currency: "INR",
+        promoApplied: promoEligible,
+      },
+    });
   } catch (e) {
     return res.status(500).json({ error: e?.message || "order_error" });
   }
