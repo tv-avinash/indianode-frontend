@@ -5,12 +5,10 @@ export default function Home() {
   const [status, setStatus] = useState("checking...");
   const [loading, setLoading] = useState(false);
 
-  // Checkout inputs
   const [email, setEmail] = useState("");
   const [minutes, setMinutes] = useState(60);
   const [promo, setPromo] = useState("");
 
-  // Waitlist inputs / messages
   const [interest, setInterest] = useState("sd");
   const [wlMsg, setWlMsg] = useState("");
   const [msg, setMsg] = useState("");
@@ -24,8 +22,9 @@ export default function Home() {
 
   // “Price for 60 minutes” (₹)
   const price60 = { whisper: 100, sd: 200, llama: 300 };
+  // Keep UI discount consistent with backend (env or default 5)
+  const DISCOUNT_RUPEES = Number(process.env.NEXT_PUBLIC_PROMO_FLAT_OFF_RUPEES || 5);
 
-  // Helpers
   function computeBase(key, mins) {
     const base = price60[key];
     if (!base) return 0;
@@ -34,10 +33,9 @@ export default function Home() {
   }
   function computeDiscount(key, mins, promoCode) {
     const code = String(promoCode || "").trim().toUpperCase();
-    if (code === "TRY" || code === "TRY10") {
+    if ((code === "TRY" || code === "TRY10") && DISCOUNT_RUPEES > 0) {
       const base = computeBase(key, mins);
-      // ₹5 off, never below ₹1 total
-      return Math.min(5, Math.max(0, base - 1));
+      return Math.min(DISCOUNT_RUPEES, Math.max(0, base - 1)); // never go below ₹1 total
     }
     return 0;
   }
@@ -116,9 +114,7 @@ export default function Home() {
           email,
           product: interest,
           minutes,
-          note: (promo?.trim().toUpperCase() === "TRY" || promo?.trim().toUpperCase() === "TRY10")
-            ? "Promo applied"
-            : "",
+          note: (promo?.trim().toUpperCase() === "TRY" || promo?.trim().toUpperCase() === "TRY10") ? "Promo applied" : "",
         }),
       });
       if (!r.ok) throw new Error("waitlist_failed");
@@ -134,15 +130,10 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <Script src="https://checkout.razorpay.com/v1/checkout.js" />
-
-      <header className="p-6 bg-gray-900 text-white text-center text-2xl font-bold">
-        Indianode GPU Cloud
-      </header>
+      <header className="p-6 bg-gray-900 text-white text-center text-2xl font-bold">Indianode GPU Cloud</header>
 
       <main className="p-8 max-w-5xl mx-auto">
-        <h1 className="text-3xl font-bold mb-3 text-center">
-          3090 GPU on demand • India billing • deploy in minutes
-        </h1>
+        <h1 className="text-3xl font-bold mb-3 text-center">3090 GPU on demand • India billing • deploy in minutes</h1>
         <p className="text-center mb-6 text-lg">
           Current GPU Status: <span className="font-semibold">{status}</span>
         </p>
@@ -152,38 +143,15 @@ export default function Home() {
           <div className="grid md:grid-cols-3 gap-4">
             <label className="flex flex-col">
               <span className="text-sm font-semibold mb-1">Your email (for receipts)</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="border rounded-lg px-3 py-2"
-                disabled={loading}
-              />
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="border rounded-lg px-3 py-2" disabled={loading} />
             </label>
-
             <label className="flex flex-col">
               <span className="text-sm font-semibold mb-1">Minutes</span>
-              <input
-                type="number"
-                min="1"
-                max="240"
-                value={minutes}
-                onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
-                className="border rounded-lg px-3 py-2"
-                disabled={loading}
-              />
+              <input type="number" min="1" max="240" value={minutes} onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))} className="border rounded-lg px-3 py-2" disabled={loading} />
             </label>
-
             <label className="flex flex-col">
               <span className="text-sm font-semibold mb-1">Promo code</span>
-              <input
-                value={promo}
-                onChange={(e) => setPromo(e.target.value)}
-                placeholder="TRY"
-                className="border rounded-lg px-3 py-2"
-                disabled={loading}
-              />
+              <input value={promo} onChange={(e) => setPromo(e.target.value)} placeholder="TRY or TRY10" className="border rounded-lg px-3 py-2" disabled={loading} />
             </label>
           </div>
 
@@ -195,33 +163,18 @@ export default function Home() {
               <div className="grid md:grid-cols-3 gap-3">
                 <label className="flex flex-col">
                   <span className="text-xs font-semibold mb-1">Email</span>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="border rounded-lg px-3 py-2"
-                  />
+                  <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="border rounded-lg px-3 py-2" />
                 </label>
                 <label className="flex flex-col">
                   <span className="text-xs font-semibold mb-1">Interested in</span>
-                  <select
-                    value={interest}
-                    onChange={(e) => setInterest(e.target.value)}
-                    className="border rounded-lg px-3 py-2"
-                  >
+                  <select value={interest} onChange={(e) => setInterest(e.target.value)} className="border rounded-lg px-3 py-2">
                     <option value="sd">Stable Diffusion</option>
                     <option value="whisper">Whisper ASR</option>
                     <option value="llama">LLaMA Inference</option>
                   </select>
                 </label>
                 <div className="flex items-end">
-                  <button
-                    onClick={joinWaitlist}
-                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl"
-                  >
-                    Notify me
-                  </button>
+                  <button onClick={joinWaitlist} className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl">Notify me</button>
                 </div>
               </div>
               {wlMsg && <div className="text-xs text-gray-700 mt-3">{wlMsg}</div>}
@@ -229,25 +182,19 @@ export default function Home() {
           )}
         </div>
 
-        {msg ? (
-          <div className="max-w-xl mx-auto mb-6 text-center text-sm text-amber-700 bg-amber-100 border border-amber-200 rounded-xl px-4 py-2">
-            {msg}
-          </div>
-        ) : null}
+        {msg ? <div className="max-w-xl mx-auto mb-6 text-center text-sm text-amber-700 bg-amber-100 border border-amber-200 rounded-xl px-4 py-2">{msg}</div> : null}
 
         {/* Product cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {templates.map((t) => {
             const base = computeBase(t.key, minutes);
             const off  = computeDiscount(t.key, minutes, promo);
-            const total = base - off;
-
+            const total = Math.max(1, base - off);
             return (
               <div key={t.key} className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between">
                 <div>
                   <h2 className="text-xl font-bold mb-2">{t.name}</h2>
                   <p className="text-gray-600 mb-3">{t.desc}</p>
-
                   {off > 0 ? (
                     <p className="text-gray-800">
                       <span className="font-semibold">Price for {minutes} min:</span>{" "}
@@ -260,14 +207,10 @@ export default function Home() {
                       <span className="font-semibold">Price for {minutes} min:</span> ₹{total}
                     </p>
                   )}
-
                   <p className="text-xs text-gray-500 mt-1">(₹{price60[t.key]} for 60 min)</p>
                 </div>
-
                 <button
-                  className={`mt-4 text-white px-4 py-2 rounded-xl ${
-                    disabled ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
-                  }`}
+                  className={`mt-4 text-white px-4 py-2 rounded-xl ${disabled ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"}`}
                   onClick={() => openRazorpay({ product: t.key, displayName: t.name })}
                   disabled={disabled}
                 >
@@ -281,18 +224,8 @@ export default function Home() {
 
       <section className="mt-16 border-t pt-10 pb-6 text-center text-sm text-gray-700">
         <p className="mb-2">💬 Looking for custom pricing, discounts, or rate concessions? Reach out:</p>
-        <p>
-          Email:{" "}
-          <a href="mailto:tvavinash@gmail.com" className="text-blue-600 hover:underline">
-            tvavinash@gmail.com
-          </a>
-        </p>
-        <p>
-          Phone:{" "}
-          <a href="tel:+919902818004" className="text-blue-600 hover:underline">
-            +919902818004
-          </a>
-        </p>
+        <p>Email: <a href="mailto:tvavinash@gmail.com" className="text-blue-600 hover:underline">tvavinash@gmail.com</a></p>
+        <p>Phone: <a href="tel:+919902818004" className="text-blue-600 hover:underline">+919902818004</a></p>
         <p className="mt-3 text-xs text-gray-400">We usually reply within 24 hours.</p>
       </section>
 

@@ -1,4 +1,4 @@
-// pages/api/order.js — Razorpay via REST (minute-based pricing + TRY/TRY10 => ₹5 off)
+// pages/api/order.js — Razorpay via REST (minute-based + ₹5 promo)
 
 function getSiteOrigin(req) {
   if (process.env.NEXT_PUBLIC_SITE_ORIGIN) return process.env.NEXT_PUBLIC_SITE_ORIGIN;
@@ -34,16 +34,17 @@ export default async function handler(req, res) {
 
   const safeMinutes = Math.max(1, Number(minutes || 60));
 
-  // Pro-rata price (ceil to whole rupees)
+  // Pro-rata pricing (ceil to whole ₹)
   let amountInRupees = Math.ceil((base60 / 60) * safeMinutes);
 
-  // Promo: TRY or TRY10 => ₹5 off (never below ₹1)
-  const promoCode = String(promo || "").trim().toUpperCase();
-  if (promoCode === "TRY" || promoCode === "TRY10") {
-    amountInRupees = Math.max(1, amountInRupees - 5);
+  // ✅ Flat promo (₹5) for TRY or TRY10 (never below ₹1)
+  const DISCOUNT_RUPEES = Number(process.env.PROMO_FLAT_OFF_RUPEES || 5);
+  const code = String(promo || "").trim().toUpperCase();
+  if ((code === "TRY" || code === "TRY10") && DISCOUNT_RUPEES > 0) {
+    amountInRupees = Math.max(1, amountInRupees - DISCOUNT_RUPEES);
   }
 
-  // Optional block when busy (unless explicitly allowed)
+  // Optional: block orders when busy unless allowed
   const allowWhenBusy = String(process.env.ALLOW_ORDERS_WHEN_BUSY || "").trim() === "1";
   if (!allowWhenBusy && (await isGpuBusy(req))) {
     return res.status(409).json({ error: "gpu_busy" });
@@ -66,17 +67,13 @@ export default async function handler(req, res) {
       minutes: String(safeMinutes),
       userEmail: userEmail || "",
       promo: promo || "",
-      computed_rupees: String(amountInRupees),
     },
   };
 
   try {
     const resp = await fetch("https://api.razorpay.com/v1/orders", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Basic ${auth}`,
-      },
+      headers: { "Content-Type": "application/json", Authorization: `Basic ${auth}` },
       body: JSON.stringify(body),
     });
 
