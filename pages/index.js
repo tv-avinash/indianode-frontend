@@ -5,12 +5,12 @@ export default function Home() {
   const [status, setStatus] = useState("checking...");
   const [loading, setLoading] = useState(false);
 
-  // Inputs
+  // Checkout inputs
   const [email, setEmail] = useState("");
-  const [minutesStr, setMinutesStr] = useState("60"); // keep as string for reliable typing
+  const [minutes, setMinutes] = useState(60);
   const [promo, setPromo] = useState("");
 
-  // Waitlist
+  // Waitlist inputs / messages
   const [interest, setInterest] = useState("sd");
   const [wlMsg, setWlMsg] = useState("");
   const [msg, setMsg] = useState("");
@@ -22,28 +22,22 @@ export default function Home() {
       .catch(() => setStatus("offline"));
   }, []);
 
-  // Parse minutes every render (no memo — keeps it super reactive)
-  const minutes = (() => {
-    const n = parseInt(minutesStr, 10);
-    if (Number.isNaN(n)) return 60;
-    return Math.min(240, Math.max(1, n));
-  })();
-
-  // Base ₹ for 60 minutes
+  // Price for 60 minutes (₹)
   const price60 = { whisper: 100, sd: 200, llama: 300 };
 
-  const isTryPromo = (code) => {
-    const c = String(code || "").trim().toUpperCase();
-    return c === "TRY" || c === "TRY10";
-  };
-
-  const computePrice = (key, mins, code) => {
-    const base = price60[key] || 0;
+  // Compute ₹ for selected minutes (pro-rata; ceil to whole rupees)
+  function computePrice(key, mins, promoCode) {
+    const base = price60[key];
+    if (!base) return 0;
     const m = Math.max(1, Number(mins || 60));
     let total = Math.ceil((base / 60) * m);
-    if (isTryPromo(code)) total = Math.max(1, total - 100);
+
+    const code = String(promoCode || "").trim().toUpperCase();
+    if (code === "TRY" || code === "TRY10") {
+      total = Math.max(1, total - 5);
+    }
     return total;
-  };
+  }
 
   const templates = [
     { key: "whisper", name: "Whisper ASR",      desc: "Speech-to-text on GPU" },
@@ -72,13 +66,10 @@ export default function Home() {
       setMsg("");
       setLoading(true);
 
-      if (!window?.Razorpay) {
-        alert("Payment module not loaded yet. Please try again in a moment.");
-        return;
-      }
-
       const userEmail = (email || "").trim();
-      if (!userEmail) setMsg("Tip: add your email so we can send your deploy URL + receipt.");
+      if (!userEmail) {
+        setMsg("Tip: add your email so we can send your deploy URL + receipt.");
+      }
 
       const order = await createOrder({ product, minutes, userEmail, promo });
 
@@ -90,12 +81,7 @@ export default function Home() {
         name: "Indianode Cloud",
         description: `Deployment for ${displayName} (${minutes} min)`,
         prefill: userEmail ? { email: userEmail } : undefined,
-        notes: {
-          minutes: String(minutes),
-          product,
-          email: userEmail,
-          promo: (promo || "").trim(),
-        },
+        notes: { minutes: String(minutes), product, email: userEmail, promo: (promo || "").trim() },
         theme: { color: "#111827" },
         handler: function (response) {
           alert("Payment success: " + response.razorpay_payment_id);
@@ -124,7 +110,9 @@ export default function Home() {
           email,
           product: interest,
           minutes,
-          note: isTryPromo(promo) ? "Promo TRY user" : "",
+          note: (promo?.trim().toUpperCase() === "TRY" || promo?.trim().toUpperCase() === "TRY10")
+            ? "Promo applied"
+            : "",
         }),
       });
       if (!r.ok) throw new Error("waitlist_failed");
@@ -136,8 +124,6 @@ export default function Home() {
 
   const busy = status !== "available";
   const disabled = loading;
-
-  const formatINR = (n) => new Intl.NumberFormat("en-IN").format(n);
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -163,8 +149,7 @@ export default function Home() {
               <input
                 type="email"
                 value={email}
-                onInput={(e) => setEmail(e.currentTarget.value)}
-                onChange={(e) => setEmail(e.currentTarget.value)}
+                onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 className="border rounded-lg px-3 py-2"
                 disabled={loading}
@@ -177,11 +162,8 @@ export default function Home() {
                 type="number"
                 min="1"
                 max="240"
-                step="1"
-                value={minutesStr}
-                onInput={(e) => setMinutesStr(e.currentTarget.value)}
-                onChange={(e) => setMinutesStr(e.currentTarget.value)}
-                onKeyUp={(e) => setMinutesStr(e.currentTarget.value)}
+                value={minutes}
+                onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
                 className="border rounded-lg px-3 py-2"
                 disabled={loading}
               />
@@ -191,10 +173,8 @@ export default function Home() {
               <span className="text-sm font-semibold mb-1">Promo code</span>
               <input
                 value={promo}
-                onInput={(e) => setPromo(e.currentTarget.value)}
-                onChange={(e) => setPromo(e.currentTarget.value)}
-                onKeyUp={(e) => setPromo(e.currentTarget.value)}
-                placeholder="TRY or TRY10"
+                onChange={(e) => setPromo(e.target.value)}
+                placeholder="TRY"
                 className="border rounded-lg px-3 py-2"
                 disabled={loading}
               />
@@ -212,8 +192,7 @@ export default function Home() {
                   <input
                     type="email"
                     value={email}
-                    onInput={(e) => setEmail(e.currentTarget.value)}
-                    onChange={(e) => setEmail(e.currentTarget.value)}
+                    onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
                     className="border rounded-lg px-3 py-2"
                   />
@@ -254,17 +233,18 @@ export default function Home() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {templates.map((t) => {
             const total = computePrice(t.key, minutes, promo);
+            const promoActive = String(promo).trim().toUpperCase() === "TRY" || String(promo).trim().toUpperCase() === "TRY10";
             return (
               <div key={t.key} className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between">
                 <div>
                   <h2 className="text-xl font-bold mb-2">{t.name}</h2>
                   <p className="text-gray-600 mb-3">{t.desc}</p>
                   <p className="text-gray-800">
-                    <span className="font-semibold">Price for {minutes} min:</span> ₹{formatINR(total)}
+                    <span className="font-semibold">Price for {minutes} min:</span> ₹{total}
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
-                    (₹{formatINR(price60[t.key])} for 60 min)
-                    {isTryPromo(promo) && <span className="text-green-700"> — includes ₹100 off</span>}
+                    (₹{price60[t.key]} for 60 min)
+                    {promoActive && <span className="text-green-700"> — includes ₹5 off</span>}
                   </p>
                 </div>
 
@@ -275,7 +255,7 @@ export default function Home() {
                   onClick={() => openRazorpay({ product: t.key, displayName: t.name })}
                   disabled={disabled}
                 >
-                  {loading ? "Opening Checkout..." : `Pay ₹${formatINR(total)} • Deploy ${t.name}`}
+                  {loading ? "Opening Checkout..." : `Pay ₹${total} • Deploy ${t.name}`}
                 </button>
               </div>
             );

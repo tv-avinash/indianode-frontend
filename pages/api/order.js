@@ -1,4 +1,4 @@
-// pages/api/order.js — Razorpay via REST (minute-based pricing + TRY/TRY10)
+// pages/api/order.js — Razorpay via REST (minute-based pricing + TRY/TRY10 => ₹5 off)
 
 function getSiteOrigin(req) {
   if (process.env.NEXT_PUBLIC_SITE_ORIGIN) return process.env.NEXT_PUBLIC_SITE_ORIGIN;
@@ -14,8 +14,7 @@ async function isGpuBusy(req) {
     const j = await r.json();
     return j.status !== "available";
   } catch {
-    // Fail-safe: if we can't check status, treat as busy
-    return true;
+    return true; // fail-safe
   }
 }
 
@@ -33,19 +32,18 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "invalid_product" });
   }
 
-  // Sanitize minutes
   const safeMinutes = Math.max(1, Number(minutes || 60));
 
-  // Pro-rata price rounded up to whole rupees
+  // Pro-rata price (ceil to whole rupees)
   let amountInRupees = Math.ceil((base60 / 60) * safeMinutes);
 
-  // Promo: TRY or TRY10 => ₹100 off (never below ₹1)
+  // Promo: TRY or TRY10 => ₹5 off (never below ₹1)
   const promoCode = String(promo || "").trim().toUpperCase();
   if (promoCode === "TRY" || promoCode === "TRY10") {
-    amountInRupees = Math.max(1, amountInRupees - 100);
+    amountInRupees = Math.max(1, amountInRupees - 5);
   }
 
-  // Optional: block orders when busy (unless explicitly allowed)
+  // Optional block when busy (unless explicitly allowed)
   const allowWhenBusy = String(process.env.ALLOW_ORDERS_WHEN_BUSY || "").trim() === "1";
   if (!allowWhenBusy && (await isGpuBusy(req))) {
     return res.status(409).json({ error: "gpu_busy" });
@@ -68,7 +66,6 @@ export default async function handler(req, res) {
       minutes: String(safeMinutes),
       userEmail: userEmail || "",
       promo: promo || "",
-      // (optional) keep the computed server price in notes for debugging
       computed_rupees: String(amountInRupees),
     },
   };
@@ -84,16 +81,12 @@ export default async function handler(req, res) {
     });
 
     const json = await resp.json();
-
     if (!resp.ok) {
-      const msg =
-        json?.error?.description ||
-        json?.error?.reason ||
-        `order_failed_${resp.status}`;
+      const msg = json?.error?.description || json?.error?.reason || `order_failed_${resp.status}`;
       return res.status(500).json({ error: msg });
     }
 
-    return res.status(200).json(json); // Razorpay order object
+    return res.status(200).json(json);
   } catch (e) {
     return res.status(500).json({ error: e?.message || "order_error" });
   }
