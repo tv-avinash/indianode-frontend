@@ -1,6 +1,10 @@
 {
   "redirects": [
-    { "source": "https://indianode.com/:path*", "destination": "https://www.indianode.com/:path*", "permanent": true },
-    { "source": "/:path*", "has": [{ "type": "host", "value": "indianode.com" }], "destination": "https://www.indianode.com/:path*", "permanent": true }
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "indianode.com" }],
+      "destination": "https://www.indianode.com/:path*",
+      "permanent": true
+    }
   ]
 }
