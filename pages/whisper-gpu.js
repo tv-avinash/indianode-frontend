@@ -7,7 +7,7 @@ export default function WhisperGPU() {
   const description =
     "GPU-accelerated Whisper speech-to-text on NVIDIA RTX 3090 (24GB). Supports Whisper Large v3. India & international payments. Deploy in minutes, pay per minute.";
   const url = "https://www.indianode.com/whisper-gpu";
-  const image = "https://www.indianode.com/og/whisper-gpu.png"; // optional
+  const image = "https://www.indianode.com/og/whisper-gpu.png"; // ensure this file exists
 
   // --- Structured Data (rich results) ---
   const faqJsonLd = {
@@ -41,6 +41,7 @@ export default function WhisperGPU() {
     ]
   };
 
+  // Enriched Product JSON-LD for better eligibility
   const productJsonLd = {
     "@context": "https://schema.org",
     "@type": "Product",
@@ -49,12 +50,16 @@ export default function WhisperGPU() {
     description:
       "Run OpenAI Whisper (including Large v3) on a dedicated RTX 3090. Minute-based pricing with INR and USD display. Endpoint URL emailed on deploy.",
     url,
+    image: [image],                     // added
+    sku: "whisper-3090-24gb",          // added (arbitrary stable id)
     offers: {
       "@type": "Offer",
       priceCurrency: "INR",
-      price: "100", // reference price for 60 min (adjust as needed)
+      price: "100",                     // reference price for 60 min (adjust if needed)
       availability: "https://schema.org/InStock",
-      url
+      itemCondition: "https://schema.org/NewCondition",  // added
+      url,
+      priceValidUntil: "2026-12-31"     // added (future date is fine)
     }
   };
 
