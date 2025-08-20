@@ -1,5 +1,6 @@
 // pages/llm-hosting.js
 import Head from "next/head";
+import Link from "next/link";
 
 export default function LLMHostingPage() {
   const jsonLd = {
@@ -52,7 +53,10 @@ export default function LLMHostingPage() {
         </ol>
 
         <p>
-          Related: <a href="/whisper-gpu">Whisper on GPU</a> • <a href="/sdls">SDLS hosting</a>
+          Related:&nbsp;
+          <Link href="/whisper-gpu" className="text-blue-600 underline">Whisper on GPU</Link>
+          &nbsp;•&nbsp;
+          <Link href="/sdls" className="text-blue-600 underline">SDLS hosting</Link>
         </p>
       </main>
     </>

@@ -1,5 +1,6 @@
 // pages/sdls.js
 import Head from "next/head";
+import Link from "next/link";
 
 export default function SDLSPage() {
   const jsonLd = {
@@ -34,8 +35,8 @@ export default function SDLSPage() {
       <main style={{maxWidth: 880, margin: "0 auto", padding: "2rem 1rem"}}>
         <h1>SDLS Hosting on RTX 3090</h1>
         <p>
-          Deploy and run <strong>Standard Development Lease Scripts (SDLS)</strong> on high-performance NVIDIA RTX 3090 GPUs.
-          Ideal for AI inference, batch jobs, and microservices needing predictable GPU throughput.
+          Deploy and run <strong>Standard Development Lease Scripts (SDLS)</strong> on high-performance NVIDIA RTX 3090
+          GPUs. Ideal for AI inference, batch jobs, and microservices needing predictable GPU throughput.
         </p>
 
         <h2>Why Indianode</h2>
@@ -54,7 +55,10 @@ export default function SDLSPage() {
         </ol>
 
         <p>
-          Related: <a href="/whisper-gpu">Whisper on GPU</a> • <a href="/llm-hosting">LLM hosting</a>
+          Related:&nbsp;
+          <Link href="/whisper-gpu" className="text-blue-600 underline">Whisper on GPU</Link>
+          &nbsp;•&nbsp;
+          <Link href="/llm-hosting" className="text-blue-600 underline">LLM hosting</Link>
         </p>
       </main>
     </>
