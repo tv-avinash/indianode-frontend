@@ -1,4 +1,4 @@
-// pages/api/order.js — Razorpay via REST (minute-based + ₹5 promo + calc breakdown)
+// pages/api/order.js — Razorpay via REST (minute-based + ₹5 promo + calc breakdown + webhook_guard)
 
 function getSiteOrigin(req) {
   if (process.env.NEXT_PUBLIC_SITE_ORIGIN) return process.env.NEXT_PUBLIC_SITE_ORIGIN;
@@ -62,6 +62,10 @@ export default async function handler(req, res) {
 
   const auth = Buffer.from(`${key_id}:${key_secret}`).toString("base64");
 
+  // Optional guard to pair orders with webhook (set same env on Vercel + include here)
+  const WEBHOOK_GUARD = (process.env.WEBHOOK_GUARD || "").trim();
+  const origin = getSiteOrigin(req);
+
   const body = {
     amount: Math.floor(amountInRupees * 100), // paise
     currency: "INR",
@@ -71,6 +75,9 @@ export default async function handler(req, res) {
       minutes: String(safeMinutes),
       userEmail: userEmail || "",
       promo: promo || "",
+      webhook_guard: WEBHOOK_GUARD,   // <— for webhook allowlisting
+      site_origin: origin,            // tiny breadcrumb for debugging
+
       // tiny server-side calc trail (all strings)
       calc_base60: String(base60),
       calc_gross: String(gross),
@@ -109,6 +116,7 @@ export default async function handler(req, res) {
         net: amountInRupees,
         currency: "INR",
         promoApplied: promoEligible,
+        promoCode: code || "",
       },
     });
   } catch (e) {
