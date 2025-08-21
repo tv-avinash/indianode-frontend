@@ -10,13 +10,13 @@ const gaEvent = (name, params = {}) => {
 };
 
 export default function StoragePage() {
-  // ----------------- env toggles -----------------
+  // ---------- env toggles ----------
   const SHOW_AKASH = String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
   const SALES_OPEN = String(process.env.NEXT_PUBLIC_SALES_OPEN || "1") !== "0";
   const ALLOW_PAY_WHEN_BUSY =
     String(process.env.NEXT_PUBLIC_ALLOW_PAY_WHEN_BUSY || "0") === "1";
 
-  // Provider lock (attribute) + optional address for display
+  // Provider lock (attribute) + optional address display
   const ATTR_KEY = process.env.NEXT_PUBLIC_PROVIDER_ATTR_KEY || "org";
   const ATTR_VAL = process.env.NEXT_PUBLIC_PROVIDER_ATTR_VALUE || "indianode";
   const PROVIDER_ADDR =
@@ -33,7 +33,7 @@ export default function StoragePage() {
     g1tb: cleanRzp(process.env.NEXT_PUBLIC_RZP_1TB_MULTI || ""),
   };
 
-  // ----------------- runtime state -----------------
+  // ---------- runtime state ----------
   const [status, setStatus] = useState("checking...");
   const [fx, setFx] = useState(
     Number(process.env.NEXT_PUBLIC_USD_INR ? 1 / Number(process.env.NEXT_PUBLIC_USD_INR) : 0.0116)
@@ -68,9 +68,8 @@ export default function StoragePage() {
     { key: "g1tb", title: "1 TiB", price: PRICE.g1tb, size: "1TiB" },
   ];
 
-  // ----------------- SDL generator (locked) -----------------
+  // ---------- SDL generator (locked to your provider) ----------
   function buildLockedSDL(sizeStr) {
-    // sizeStr: "200Gi" | "500Gi" | "1TiB"
     return `version: "2.0"
 
 services:
@@ -125,7 +124,7 @@ deployment:
 `;
   }
 
-  function downloadSDL(planKey, sizeStr) {
+  function downloadSDL(sizeStr) {
     const yml = buildLockedSDL(sizeStr);
     const blob = new Blob([yml], { type: "text/yaml" });
     const url = URL.createObjectURL(blob);
@@ -149,7 +148,7 @@ deployment:
     }
   }
 
-  // ----------------- UI -----------------
+  // ---------- UI ----------
   return (
     <>
       <Head>
@@ -161,7 +160,7 @@ deployment:
         <link rel="canonical" href="https://www.indianode.com/storage" />
       </Head>
 
-      {/* Single-screen layout: very compact, no scroll on typical laptops/desktops */}
+      {/* Single-screen layout */}
       <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
         <header className="px-6 py-4 bg-gray-900 text-white flex items-center justify-between">
           <div className="font-bold text-lg">Indianode — Storage</div>
@@ -195,9 +194,7 @@ deployment:
                       <span className="text-sm text-gray-500">
                         ~${toUSD(p.price)}
                       </span>
-                      <span className="ml-2 text-[11px] text-gray-500">
-                        /mo
-                      </span>
+                      <span className="ml-2 text-[11px] text-gray-500">/mo</span>
                     </div>
                     <p className="mt-1 text-sm text-gray-600">
                       Persistent volume at <code>/data</code> (NVMe).
@@ -205,14 +202,15 @@ deployment:
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-2">
+                    {/* Akash deploy buttons — ALWAYS visible if SHOW_AKASH */}
                     {SHOW_AKASH && (
                       <>
                         <button
-                          onClick={() => downloadSDL(p.key, p.size)}
+                          onClick={() => downloadSDL(p.size)}
                           className="col-span-2 md:col-span-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-3 py-2"
                           title="Download provider-locked SDL"
                         >
-                          Download SDL
+                          Deploy on Akash (SDL)
                         </button>
                         <button
                           onClick={() => copySDL(p.size)}
@@ -224,6 +222,7 @@ deployment:
                       </>
                     )}
 
+                    {/* Card/UPI — gated by sales/busy */}
                     {canSell ? (
                       LINKS[p.key] ? (
                         <a
@@ -262,7 +261,8 @@ deployment:
                       )
                     ) : (
                       <div className="col-span-2 text-center text-sm text-gray-600">
-                        Card/UPI disabled{busy && !ALLOW_PAY_WHEN_BUSY ? " • GPU busy" : ""}
+                        Card/UPI disabled
+                        {busy && !ALLOW_PAY_WHEN_BUSY ? " • GPU busy" : ""}
                       </div>
                     )}
                   </div>
