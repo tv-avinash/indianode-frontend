@@ -49,7 +49,9 @@ export default function StoragePage() {
   // Toggles
   const SALES_OPEN = String(process.env.NEXT_PUBLIC_SALES_OPEN || "1") !== "0";
   const SHOW_AKASH = String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
-  const canSell = SALES_OPEN && !busy;
+  const ALLOW_PAY_WHEN_BUSY =
+    String(process.env.NEXT_PUBLIC_ALLOW_PAY_WHEN_BUSY || "0") === "1";
+  const canSell = SALES_OPEN && (ALLOW_PAY_WHEN_BUSY || !busy);
 
   // Preload script URL: backend if provided, else static
   const base = process.env.NEXT_PUBLIC_DEPLOYER_BASE || "";
@@ -73,6 +75,11 @@ export default function StoragePage() {
     preload: cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_MULTI || ""),
   };
 
+  // Provider lock (attribute + address shown to renters)
+  const ATTR_KEY = process.env.NEXT_PUBLIC_PROVIDER_ATTR_KEY || "org";
+  const ATTR_VAL = process.env.NEXT_PUBLIC_PROVIDER_ATTR_VALUE || "indianode";
+  const PROVIDER_ADDR = process.env.NEXT_PUBLIC_PROVIDER_ADDR || "akash1YOURADDRESSHERE";
+
   // Waitlist (same pattern as index.js)
   async function joinWaitlist() {
     setWlMsg("");
@@ -89,16 +96,13 @@ export default function StoragePage() {
       });
       if (!r.ok) throw new Error("waitlist_failed");
       setWlMsg("Thanks! We’ll email you as soon as the GPU is free.");
-      gaEvent("generate_lead", {
-        method: "waitlist",
-        product: "storage",
-        size,
-      });
+      gaEvent("generate_lead", { method: "waitlist", product: "storage", size });
     } catch {
       setWlMsg("Could not join waitlist. Please try again.");
     }
   }
 
+  // SDL links (keep filenames; content should include the attribute lock)
   const plans = [
     {
       key: "g200",
@@ -106,6 +110,7 @@ export default function StoragePage() {
       desc: "Great for checkpoints & HF snapshots",
       price: PRICE.g200,
       href: LINKS.g200,
+      // these SDLs should include: placement.attributes: { [ATTR_KEY]: ATTR_VAL }
       sdl: "/downloads/sdl/app-200Gi.yaml",
     },
     {
@@ -141,7 +146,7 @@ export default function StoragePage() {
         <title>Storage — Indianode</title>
         <meta
           name="description"
-          content="Same-host NVMe storage for your Akash lease. 200 Gi / 500 Gi / 1 TiB + optional preload script."
+          content="Same-host NVMe storage for your Akash lease. 200 Gi / 500 Gi / 1 TiB + optional preload script. SDLs are locked to our provider."
         />
         <link rel="canonical" href="https://www.indianode.com/storage" />
       </Head>
@@ -155,10 +160,10 @@ export default function StoragePage() {
           {/* capacity/status banner */}
           {!SALES_OPEN && (
             <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-900">
-              <b>At capacity:</b> Our GPU is currently leased. Card/UPI buttons are disabled. You can still deploy via Akash SDL.
+              <b>At capacity:</b> Card/UPI buttons are disabled. You can still deploy via Akash SDL.
             </div>
           )}
-          {SALES_OPEN && busy && (
+          {SALES_OPEN && busy && !ALLOW_PAY_WHEN_BUSY && (
             <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-900">
               <b>GPU busy:</b> Please deploy via Akash and/or join the waitlist below; we’ll notify you as soon as it’s free.
             </div>
@@ -172,6 +177,10 @@ export default function StoragePage() {
             <p className="text-gray-700">
               Fast, same-host storage for checkpoints, HuggingFace snapshots, and
               preprocessed data. Zero server changes on your side.
+            </p>
+            <p className="mt-2 text-sm text-emerald-700">
+              <b>Provider-locked SDLs:</b> our templates require{" "}
+              <code>{ATTR_KEY}={ATTR_VAL}</code> so bids match our node only.
             </p>
           </section>
 
@@ -195,6 +204,9 @@ export default function StoragePage() {
                       <span className="text-sm text-gray-500">
                         ~${toUSD(p.price)}/mo
                       </span>
+                    </div>
+                    <div className="mt-2 text-xs text-emerald-700">
+                      Locked to <code>{ATTR_KEY}={ATTR_VAL}</code>
                     </div>
                   </div>
 
@@ -247,8 +259,43 @@ export default function StoragePage() {
             </p>
           </section>
 
+          {/* CLI deploy helper */}
+          <section className="mt-10">
+            <h2 className="text-2xl font-semibold mb-3">Deploy via CLI (auto-select our bid)</h2>
+            <p className="text-gray-700 mb-3">
+              Prefer the CLI? Use our helper that waits for a bid from{" "}
+              <code>{PROVIDER_ADDR}</code> and accepts only that bid.
+            </p>
+            <pre className="bg-gray-900 text-gray-100 rounded-xl p-3 overflow-x-auto text-sm">
+              <code>{`curl -fsSL ${origin}/downloads/scripts/deploy-indianode.sh | bash -s -- /path/to/app-200Gi.yaml`}</code>
+            </pre>
+            <p className="text-gray-600">
+              Or download:{" "}
+              <a
+                href="/downloads/scripts/deploy-indianode.sh"
+                className="text-blue-600 hover:underline"
+              >
+                deploy-indianode.sh
+              </a>
+            </p>
+          </section>
+
+          {/* What’s inside the SDL */}
+          <section className="mt-10">
+            <h3 className="font-semibold mb-2">What’s inside the SDL (provider lock)</h3>
+            <pre className="bg-gray-100 text-gray-800 rounded-xl p-3 overflow-x-auto text-sm">
+{`placement:
+  akash:
+    attributes:
+      ${ATTR_KEY}: ${ATTR_VAL}   # <- only match our provider
+    pricing:
+      app: { denom: uakt, amount: 1000 } # example price
+`}
+            </pre>
+          </section>
+
           {/* preload add-on */}
-          <section className="mt-8">
+          <section className="mt-10">
             <div className="bg-white rounded-2xl shadow p-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold">Self-serve Preload (one-time)</h3>
@@ -269,12 +316,22 @@ export default function StoragePage() {
                       href={LINKS.preload}
                       target="_blank"
                       rel="noreferrer"
-                      onClick={() => gaEvent("begin_checkout", {
-                        value: PRICE.preload,
-                        currency: "INR",
-                        items: [{ item_id: "preload", item_name: "preload", item_category: "storage", quantity: 1, price: PRICE.preload }],
-                        payment_method: "razorpay_link",
-                      })}
+                      onClick={() =>
+                        gaEvent("begin_checkout", {
+                          value: PRICE.preload,
+                          currency: "INR",
+                          items: [
+                            {
+                              item_id: "preload",
+                              item_name: "preload",
+                              item_category: "storage",
+                              quantity: 1,
+                              price: PRICE.preload,
+                            },
+                          ],
+                          payment_method: "razorpay_link",
+                        })
+                      }
                       className="block text-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl"
                     >
                       Pay for Preload
@@ -314,41 +371,25 @@ export default function StoragePage() {
             <ul className="list-disc pl-6 text-blue-700">
               <li>
                 <a href="/downloads/sdl/app-200Gi.yaml" className="hover:underline">
-                  GPU + 200 Gi
+                  GPU + 200 Gi (locked to {ATTR_KEY}={ATTR_VAL})
                 </a>
               </li>
               <li>
                 <a href="/downloads/sdl/app-500Gi.yaml" className="hover:underline">
-                  GPU + 500 Gi
+                  GPU + 500 Gi (locked to {ATTR_KEY}={ATTR_VAL})
                 </a>
               </li>
               <li>
                 <a href="/downloads/sdl/app-1Ti.yaml" className="hover:underline">
-                  GPU + 1 TiB
+                  GPU + 1 TiB (locked to {ATTR_KEY}={ATTR_VAL})
                 </a>
               </li>
               <li>
                 <a href="/downloads/sdl/storage-only-1Ti.yaml" className="hover:underline">
-                  Storage-only 1 TiB
+                  Storage-only 1 TiB (locked to {ATTR_KEY}={ATTR_VAL})
                 </a>
               </li>
             </ul>
-          </section>
-
-          {/* How it works (deploy → pay → preload) */}
-          <section className="mt-10">
-            <h2 className="text-2xl font-semibold mb-2">How it works</h2>
-            <ol className="list-decimal pl-6 text-gray-800">
-              <li>
-                <b>Deploy on Akash</b> using an SDL that requests 200 Gi / 500 Gi / 1 TiB.
-              </li>
-              <li>
-                <b>Pay (optional)</b> with Card/UPI for the matching size (or keep it Akash-only if you prefer).
-              </li>
-              <li>
-                <b>Preload (optional)</b> — open a shell in your container and run the one-liner.
-              </li>
-            </ol>
           </section>
 
           {/* Waitlist section (when Card/UPI not available or busy) */}
