@@ -32,6 +32,10 @@ export default function Home() {
   const SHOW_AKASH =
     String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
 
+  // Provider lock (used by hero SDL downloads)
+  const ATTR_KEY = process.env.NEXT_PUBLIC_PROVIDER_ATTR_KEY || "org";
+  const ATTR_VAL = process.env.NEXT_PUBLIC_PROVIDER_ATTR_VAL || "indianode";
+
   // FX (INR->USD)
   const [fx, setFx] = useState(0.012);
   useEffect(() => {
@@ -79,7 +83,7 @@ export default function Home() {
     []
   );
 
-  // --- Payments ---
+  // --- Payments (unchanged) ---
   async function createRazorpayOrder({ product, minutes, userEmail }) {
     const r = await fetch("/api/order", {
       method: "POST",
@@ -247,7 +251,7 @@ export default function Home() {
   const busy = status !== "available";
   const disabled = loading;
 
-  // Map product to the right Akash info page
+  // Map product to info page (kept for cards)
   const akashHrefFor = (key) => {
     switch (key) {
       case "whisper":
@@ -260,6 +264,67 @@ export default function Home() {
         return "/sdls";
     }
   };
+
+  // --- NEW: hero buttons download provider-locked SDLs ---
+  function gpuSDL(kind) {
+    // conservative defaults per workload
+    const table = {
+      whisper: { cpu: 4, mem: "16Gi", price: 800, tag: "whisper" },
+      sd: { cpu: 6, mem: "24Gi", price: 900, tag: "stable-diffusion" },
+      llama: { cpu: 8, mem: "48Gi", price: 1100, tag: "llama" },
+    };
+    const cfg = table[kind] || table.sd;
+
+    return `version: "2.0"
+services:
+  app:
+    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+    command: ["bash","-lc","sleep infinity"]
+    env:
+      - WORKLOAD=${cfg.tag}
+    resources:
+      cpu: { units: ${cfg.cpu} }
+      memory: { size: ${cfg.mem} }
+      gpu:
+        units: 1
+        attributes:
+          vendor/nvidia/model/*: "true"
+profiles:
+  compute:
+    app: {}
+  placement:
+    indianode:
+      attributes:
+        ${ATTR_KEY}: "${ATTR_VAL}"
+      pricing:
+        app:
+          denom: uakt
+          amount: ${cfg.price}
+deployment:
+  app:
+    indianode:
+      profile: app
+      count: 1
+`;
+  }
+
+  function downloadText(filename, text) {
+    const blob = new Blob([text], { type: "text/yaml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleDownloadSDL(kind) {
+    const yaml = gpuSDL(kind);
+    downloadText(`indianode-${kind}.yaml`, yaml);
+    gaEvent("select_content", { item_id: `download_locked_sdl_${kind}` });
+  }
 
   // Scroll helper to inputs/waitlist
   const scrollToWaitlist = () => {
@@ -277,7 +342,7 @@ export default function Home() {
         />
         <link rel="canonical" href="https://www.indianode.com/" />
 
-        {/* Open Graph / Twitter */}
+        {/* OG / Twitter */}
         <meta property="og:title" content="Indianode — GPU Hosting on RTX 3090" />
         <meta
           property="og:description"
@@ -368,39 +433,45 @@ export default function Home() {
             ) : (
               <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-center">
                 <p className="mb-3 text-emerald-900">
-                  <b>GPU available.</b> Deploy now on Akash with our ready SDLs.
+                  <b>GPU available.</b> Deploy now on Akash with locked SDLs for Indianode.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                  <Link
-                    href="/whisper-gpu"
+                  <button
+                    onClick={() => handleDownloadSDL("whisper")}
                     className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2"
-                    onClick={() =>
-                      gaEvent("select_content", { item_id: "deploy_akash_whisper_top" })
-                    }
                   >
                     Whisper (SDL)
-                  </Link>
-                  <Link
-                    href="/sdls"
+                  </button>
+                  <button
+                    onClick={() => handleDownloadSDL("sd")}
                     className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2"
-                    onClick={() =>
-                      gaEvent("select_content", { item_id: "deploy_akash_sd_top" })
-                    }
                   >
                     Stable Diffusion (SDL)
-                  </Link>
-                  <Link
-                    href="/llm-hosting"
+                  </button>
+                  <button
+                    onClick={() => handleDownloadSDL("llama")}
                     className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2"
-                    onClick={() =>
-                      gaEvent("select_content", { item_id: "deploy_akash_llama_top" })
-                    }
                   >
                     LLaMA (SDL)
-                  </Link>
+                  </button>
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Storage promo / CTA */}
+          <div className="max-w-3xl mx-auto mb-8">
+            <div className="rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-center">
+              <p className="mb-3 text-gray-800">
+                Need fast <b>same-host NVMe storage</b> for your Akash lease?
+              </p>
+              <Link
+                href="/storage"
+                className="inline-block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2"
+              >
+                Explore Storage (200 Gi / 500 Gi / 1 TiB)
+              </Link>
+            </div>
           </div>
 
           {/* Buyer inputs */}
@@ -525,7 +596,7 @@ export default function Home() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-2 mt-4">
-                    {/* Akash deploy option (product-specific) */}
+                    {/* Optional: info pages remain for deeper docs */}
                     {SHOW_AKASH && (
                       <Link
                         href={akashHrefFor(t.key)}
@@ -541,7 +612,7 @@ export default function Home() {
                       </Link>
                     )}
 
-                    {/* Existing pay buttons (kept intact) */}
+                    {/* Pay buttons (unchanged) */}
                     <button
                       className={`text-white px-4 py-2 rounded-xl ${
                         disabled ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
