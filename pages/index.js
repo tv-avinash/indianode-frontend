@@ -1,9 +1,9 @@
+// pages/index.js
 import { useState, useEffect, useMemo } from "react";
 import Script from "next/script";
 import Head from "next/head";
 import Link from "next/link";
 
-// GA helper: safe no-op if gtag isn't ready
 const gaEvent = (name, params = {}) => {
   try {
     if (typeof window !== "undefined" && window.gtag) {
@@ -15,48 +15,25 @@ const gaEvent = (name, params = {}) => {
 export default function Home() {
   const [status, setStatus] = useState("checking...");
   const [loading, setLoading] = useState(false);
-
-  // Buyer inputs
   const [email, setEmail] = useState("");
   const [minutes, setMinutes] = useState(60);
   const [promo, setPromo] = useState("");
-
-  // Waitlist + banners
   const [interest, setInterest] = useState("sd");
   const [wlMsg, setWlMsg] = useState("");
   const [msg, setMsg] = useState("");
 
-  // Post-payment modal (token + command)
-  const [postpay, setPostpay] = useState({
-    open: false,
-    token: "",
-    cmd: "",
-    product: "",
-    minutes: 0,
-    info: "",
-  });
-  const [redeemBusy, setRedeemBusy] = useState(false);
-  const [redeemMsg, setRedeemMsg] = useState("");
+  // Modal state (command-only)
+  const [showModal, setShowModal] = useState(false);
+  const [orderToken, setOrderToken] = useState("");
+  const [modalProduct, setModalProduct] = useState("");
+  const [modalMinutes, setModalMinutes] = useState(0);
 
-  // Toggle PayPal with env (0/1)
-  const enablePayPal =
-    String(process.env.NEXT_PUBLIC_ENABLE_PAYPAL || "0") === "1";
+  const enablePayPal = String(process.env.NEXT_PUBLIC_ENABLE_PAYPAL || "0") === "1";
+  const SHOW_AKASH = String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
 
-  // Show Akash deploy chips (0/1)
-  const SHOW_AKASH =
-    String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
-
-  // The public base for scripts; reuse your existing var
-  const DEPLOYER_BASE =
-    process.env.NEXT_PUBLIC_DEPLOYER_BASE || "https://your-backend.example.com";
-
-  // FX (INR->USD)
   const [fx, setFx] = useState(0.012);
   useEffect(() => {
-    fetch("/api/fx")
-      .then((r) => r.json())
-      .then((j) => setFx(Number(j.rate) || 0.012))
-      .catch(() => {});
+    fetch("/api/fx").then(r=>r.json()).then(j=>setFx(Number(j.rate)||0.012)).catch(()=>{});
   }, []);
 
   useEffect(() => {
@@ -66,15 +43,11 @@ export default function Home() {
       .catch(() => setStatus("offline"));
   }, []);
 
-  // “Price for 60 minutes” base (₹)
   const price60 = { whisper: 100, sd: 200, llama: 300 };
-
-  // Promo: TRY / TRY10 => ₹5 off
   const PROMO_OFF_INR = 5;
   const promoCode = (promo || "").trim().toUpperCase();
   const promoActive = promoCode === "TRY" || promoCode === "TRY10";
 
-  // Pricing helpers
   function priceInrFor(key, mins) {
     const base = price60[key];
     if (!base) return 0;
@@ -85,7 +58,7 @@ export default function Home() {
   }
   function priceUsdFromInr(inr) {
     const val = inr * fx;
-    return Math.round((val + Number.EPSILON) * 100) / 100; // 2dp
+    return Math.round((val + Number.EPSILON) * 100) / 100;
   }
 
   const templates = useMemo(
@@ -97,7 +70,6 @@ export default function Home() {
     []
   );
 
-  // --- Payments ---
   async function createRazorpayOrder({ product, minutes, userEmail }) {
     const r = await fetch("/api/order", {
       method: "POST",
@@ -111,7 +83,15 @@ export default function Home() {
       }
       throw new Error(data?.error || "Order creation failed");
     }
-    return data; // { id, amount, currency }
+    return data;
+  }
+
+  // Show command-only modal after minting ORDER_TOKEN
+  function openCommandModal({ token, product, minutes }) {
+    setOrderToken(token);
+    setModalProduct(product);
+    setModalMinutes(minutes);
+    setShowModal(true);
   }
 
   async function payWithRazorpay({ product, displayName }) {
@@ -125,21 +105,12 @@ export default function Home() {
 
       const order = await createRazorpayOrder({ product, minutes, userEmail });
 
-      // GA: user started checkout (Razorpay)
       const valueInr = Number(((order.amount || 0) / 100).toFixed(2));
       gaEvent("begin_checkout", {
         value: valueInr,
         currency: order.currency || "INR",
         coupon: promoCode || undefined,
-        items: [
-          {
-            item_id: product,
-            item_name: displayName,
-            item_category: "gpu",
-            quantity: 1,
-            price: valueInr,
-          },
-        ],
+        items: [{ item_id: product, item_name: displayName, item_category: "gpu", quantity: 1, price: valueInr }],
         minutes: Number(minutes),
         payment_method: "razorpay",
       });
@@ -152,74 +123,39 @@ export default function Home() {
         name: "Indianode Cloud",
         description: `Deployment for ${displayName} (${minutes} min)`,
         prefill: userEmail ? { email: userEmail } : undefined,
-        notes: {
-          minutes: String(minutes),
-          product,
-          email: userEmail,
-          promo: promoCode,
-        },
+        notes: { minutes: String(minutes), product, email: userEmail, promo: promoCode },
         theme: { color: "#111827" },
-
-        // SUCCESS: get an ORDER_TOKEN and show modal (plus allow "Start now")
-        handler: async (response) => {
+        handler: async function (response) {
           try {
-            // GA: purchase
+            // Mint ORDER_TOKEN for this payment
+            const m = await fetch("/api/gpu/mint", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                paymentId: response.razorpay_payment_id,
+                product,
+                minutes,
+                email: userEmail,
+              }),
+            });
+            const j = await m.json();
+            if (!m.ok || !j?.token) throw new Error(j?.error || "token_mint_failed");
+
+            // GA purchase
             gaEvent("purchase", {
               transaction_id: response.razorpay_payment_id,
               value: valueInr,
               currency: order.currency || "INR",
               coupon: promoCode || undefined,
-              items: [
-                {
-                  item_id: product,
-                  item_name: displayName,
-                  item_category: "gpu",
-                  quantity: 1,
-                  price: valueInr,
-                },
-              ],
+              items: [{ item_id: product, item_name: displayName, item_category: "gpu", quantity: 1, price: valueInr }],
               minutes: Number(minutes),
               payment_method: "razorpay",
             });
 
-            // Get an ORDER_TOKEN + prebuilt run command
-            const k = await fetch("/api/gpu/order-token", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                orderId: order.id,
-                paymentId: response.razorpay_payment_id,
-                signature: response.razorpay_signature,
-                product,
-                minutes,
-                email: userEmail,
-                promo: promoCode,
-              }),
-            });
-            const j = await k.json();
-            if (!k.ok) throw new Error(j?.error || "order_token_failed");
-
-            // Example command (run anywhere; it just redeems the token)
-            const cmd = `curl -fsSL ${DEPLOYER_BASE.replace(
-              /\/+$/g,
-              ""
-            )}/scripts/run-gpu.sh | ORDER_TOKEN='${j.token}' bash`;
-
-            setPostpay({
-              open: true,
-              token: j.token,
-              cmd,
-              product,
-              minutes: Number(minutes || 60),
-              info:
-                j.message ||
-                "Payment verified. You can start now or copy the command.",
-            });
-          } catch (err) {
-            alert(
-              err.message ||
-                "We received your payment, but token minting failed. We’ll fix this manually."
-            );
+            // Show command-only modal
+            openCommandModal({ token: j.token, product, minutes });
+          } catch (e) {
+            alert(e.message || "Could not mint ORDER_TOKEN");
           }
         },
       };
@@ -246,27 +182,14 @@ export default function Home() {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || "paypal_create_failed");
-
-      // GA: user started checkout (PayPal)
-      const valueUsd = Number(Number(amountUsd || 0).toFixed(2));
       gaEvent("begin_checkout", {
-        value: valueUsd,
+        value: Number(Number(amountUsd || 0).toFixed(2)),
         currency: "USD",
         coupon: promoCode || undefined,
-        items: [
-          {
-            item_id: product,
-            item_name: product,
-            item_category: "gpu",
-            quantity: 1,
-            price: valueUsd,
-          },
-        ],
+        items: [{ item_id: product, item_name: product, item_category: "gpu", quantity: 1, price: amountUsd }],
         minutes: Number(minutes),
         payment_method: "paypal",
       });
-
-      // NOTE: send 'purchase' on your PayPal success/return page after capture.
       window.location.href = j.approveUrl;
     } catch (e) {
       alert(e.message || "PayPal error");
@@ -290,8 +213,6 @@ export default function Home() {
       });
       if (!r.ok) throw new Error("waitlist_failed");
       setWlMsg("Thanks! We’ll email you as soon as the GPU is free.");
-
-      // GA: lead captured via waitlist
       gaEvent("generate_lead", {
         method: "waitlist",
         product: interest,
@@ -303,62 +224,28 @@ export default function Home() {
     }
   }
 
-  // Redeem token from modal (server starts/queues job; minutes enforced server-side)
-  async function redeemNow() {
-    try {
-      setRedeemBusy(true);
-      setRedeemMsg("");
-      const r = await fetch("/api/gpu/redeem", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: postpay.token }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error || "redeem_failed");
-      setRedeemMsg(j.message || "Deployment queued. Check your email for URL.");
-      if (j.url) {
-        // Optional: take them to a status page
-        // window.location.href = j.url;
-      }
-    } catch (e) {
-      setRedeemMsg(e.message || "Could not start now. Try the command instead.");
-    } finally {
-      setRedeemBusy(false);
-    }
-  }
-
   const busy = status !== "available";
   const disabled = loading;
 
-  // Map product to the right Akash info page
   const akashHrefFor = (key) => {
     switch (key) {
-      case "whisper":
-        return "/whisper-gpu";
-      case "sd":
-        return "/sdls";
-      case "llama":
-        return "/llm-hosting";
-      default:
-        return "/sdls";
+      case "whisper": return "/whisper-gpu";
+      case "sd": return "/sdls";
+      case "llama": return "/llm-hosting";
+      default: return "/sdls";
     }
   };
 
-  function copy(text) {
-    try {
-      navigator.clipboard.writeText(text);
-      alert("Copied!");
-    } catch {
-      // fallback
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      alert("Copied!");
-    }
-  }
+  // Build command text for modal
+  const siteOrigin =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : "https://www.indianode.com";
+  // If you prefer to serve the script from your backend service, set NEXT_PUBLIC_DEPLOYER_BASE
+  const SCRIPT_BASE = process.env.NEXT_PUBLIC_DEPLOYER_BASE || siteOrigin;
+  const commandText = orderToken
+    ? `curl -fsSL ${SCRIPT_BASE}/downloads/scripts/run-gpu.sh | ORDER_TOKEN='${orderToken}' bash`
+    : "";
 
   return (
     <>
@@ -369,43 +256,11 @@ export default function Home() {
           content="Run SDLS, Whisper, and LLM inference on NVIDIA RTX 3090 (24GB). Affordable pay-per-minute GPU hosting for AI developers worldwide."
         />
         <link rel="canonical" href="https://www.indianode.com/" />
-
-        {/* Open Graph / Twitter */}
         <meta property="og:title" content="Indianode — GPU Hosting on RTX 3090" />
         <meta property="og:description" content="GPU hosting for SDLS, Whisper, and LLM workloads on 24GB RTX 3090." />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://www.indianode.com/" />
         <meta name="twitter:card" content="summary_large_image" />
-
-        {/* Organization + WebSite JSON-LD */}
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              "@context": "https://schema.org",
-              "@type": "Organization",
-              name: "Indianode",
-              url: "https://www.indianode.com",
-              logo: "https://www.indianode.com/logo.png"
-            }),
-          }}
-        />
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              "@context": "https://schema.org",
-              "@type": "WebSite",
-              name: "Indianode",
-              url: "https://www.indianode.com",
-              potentialAction: {
-                "@type": "SearchAction",
-                target: "https://www.indianode.com/?q={search_term_string}",
-                "query-input": "required name=search_term_string"
-              }
-            }),
-          }}
-        />
       </Head>
 
       <div className="min-h-screen bg-gray-50 text-gray-900">
@@ -416,50 +271,12 @@ export default function Home() {
         </header>
 
         <main className="p-8 max-w-5xl mx-auto">
-          <h1 className="text-3xl font-bold mb-2 text-center">
+          <h1 className="text-3xl font-bold mb-3 text-center">
             3090 GPU on demand • India & International payments
           </h1>
           <p className="text-center mb-6 text-lg">
-            Current GPU Status:{" "}
-            <span className={`font-semibold ${busy ? "text-amber-700" : "text-emerald-700"}`}>
-              {status}
-            </span>
+            Current GPU Status: <span className="font-semibold">{status}</span>
           </p>
-
-          {/* GPU banner with Akash SDL chips */}
-          {SHOW_AKASH && (
-            <div
-              className={`max-w-4xl mx-auto mb-8 rounded-2xl px-5 py-4 text-center ${
-                busy ? "bg-amber-50 border border-amber-200" : "bg-emerald-50 border border-emerald-200"
-              }`}
-            >
-              <p className="mb-3">
-                {busy ? (
-                  <>
-                    <b>GPU busy.</b> You can deploy on Akash now (your lease may queue), or buy below and
-                    use the post-payment <b>ORDER_TOKEN</b> to start when the GPU frees up.
-                  </>
-                ) : (
-                  <>
-                    <b>GPU available.</b> Deploy now on Akash with our ready SDLs, or buy below for
-                    managed minutes with an ORDER_TOKEN command.
-                  </>
-                )}
-              </p>
-
-              <div className="flex flex-wrap items-center justify-center gap-3">
-                <Link href="/whisper-gpu" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
-                  Whisper (SDL)
-                </Link>
-                <Link href="/sdls" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
-                  Stable Diffusion (SDL)
-                </Link>
-                <Link href="/llm-hosting" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
-                  LLaMA (SDL)
-                </Link>
-              </div>
-            </div>
-          )}
 
           {/* Storage CTA */}
           <div className="max-w-3xl mx-auto mb-8">
@@ -467,10 +284,7 @@ export default function Home() {
               <p className="mb-3 text-gray-800">
                 Need fast <b>same-host NVMe storage</b> for your Akash lease?
               </p>
-              <Link
-                href="/storage"
-                className="inline-block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2"
-              >
+              <Link href="/storage" className="inline-block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2">
                 Explore Storage (200 Gi / 500 Gi / 1 TiB)
               </Link>
             </div>
@@ -480,9 +294,7 @@ export default function Home() {
           <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 mb-8">
             <div className="grid md:grid-cols-3 gap-4">
               <label className="flex flex-col">
-                <span className="text-sm font-semibold mb-1">
-                  Your email (for receipts)
-                </span>
+                <span className="text-sm font-semibold mb-1">Your email (for receipts)</span>
                 <input
                   type="email"
                   value={email}
@@ -492,7 +304,6 @@ export default function Home() {
                   disabled={loading}
                 />
               </label>
-
               <label className="flex flex-col">
                 <span className="text-sm font-semibold mb-1">Minutes</span>
                 <input
@@ -505,7 +316,6 @@ export default function Home() {
                   disabled={loading}
                 />
               </label>
-
               <label className="flex flex-col">
                 <span className="text-sm font-semibold mb-1">Promo code</span>
                 <input
@@ -586,16 +396,23 @@ export default function Home() {
                     </p>
 
                     {promoActive && (
-                      <p className="text-xs text-green-700 mt-1">
-                        Includes promo: −₹{offInr} (≈${offUsd.toFixed(2)})
-                      </p>
+                      <p className="text-xs text-green-700 mt-1">Includes promo: −₹{offInr} (≈${offUsd.toFixed(2)})</p>
                     )}
 
                     <p className="text-xs text-gray-500 mt-1">(Base: ₹{price60[t.key]} for 60 min)</p>
                   </div>
 
                   <div className="grid grid-cols-1 gap-2 mt-4">
-                    {/* Pay buttons */}
+                    {SHOW_AKASH && (
+                      <Link
+                        href={akashHrefFor(t.key)}
+                        onClick={() => gaEvent("select_content", { content_type: "button", item_id: `deploy_akash_${t.key}` })}
+                        className="text-center bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl"
+                      >
+                        Deploy on Akash (SDL)
+                      </Link>
+                    )}
+
                     <button
                       className={`text-white px-4 py-2 rounded-xl ${
                         disabled ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
@@ -618,25 +435,9 @@ export default function Home() {
                       </button>
                     )}
 
-                    <p className="text-[11px] text-gray-500">
+                    <p className="text-[11px] text-gray-500 mt-1">
                       Billed in INR via Razorpay. USD shown is an approximate amount based on today’s rate.
                     </p>
-
-                    {/* Small Akash link */}
-                    {SHOW_AKASH && (
-                      <Link
-                        href={akashHrefFor(t.key)}
-                        className="text-[11px] text-emerald-700 hover:underline mt-1 justify-self-start"
-                        onClick={() =>
-                          gaEvent("select_content", {
-                            content_type: "link",
-                            item_id: `akash_sdl_link_${t.key}`,
-                          })
-                        }
-                      >
-                        Prefer Akash? Get SDL
-                      </Link>
-                    )}
                   </div>
                 </div>
               );
@@ -645,7 +446,7 @@ export default function Home() {
         </main>
 
         <section className="mt-16 border-t pt-10 pb-6 text-center text-sm text-gray-700">
-          <p className="mb-2">💬 Looking for custom pricing, discounts, or reserved slots? Reach out:</p>
+          <p className="mb-2">💬 Looking for custom pricing, discounts, or rate concessions? Reach out:</p>
           <p>
             Email:{" "}
             <a href="mailto:tvavinash@gmail.com" className="text-blue-600 hover:underline">
@@ -672,71 +473,43 @@ export default function Home() {
         </footer>
       </div>
 
-      {/* Post-payment modal */}
-      {postpay.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-6">
-            <div className="flex items-start justify-between">
+      {/* Command-only modal */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-3">
+          <div className="w-full max-w-2xl bg-white rounded-2xl p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-bold">Payment verified — next steps</h3>
-              <button
-                className="text-gray-500 hover:text-gray-700"
-                onClick={() => setPostpay((s) => ({ ...s, open: false }))}
-              >
-                ✕
-              </button>
+              <button onClick={() => setShowModal(false)} aria-label="Close">✕</button>
             </div>
-
-            <p className="mt-2 text-sm text-gray-700">
-              {postpay.info || "Use either option below to begin your session."}
+            <p className="text-sm text-gray-700 mb-4">
+              Token minted. Run the command below from <b>your laptop or any safe machine</b>
+              (do <b>not</b> run on your Akash host VM). It redeems your ORDER_TOKEN and queues the job for <b>{modalMinutes} min</b>.
             </p>
 
-            <div className="mt-4 grid md:grid-cols-2 gap-4">
-              <div className="rounded-xl border p-4">
-                <div className="text-sm font-semibold mb-2">Option A — Start now (1-click)</div>
-                <button
-                  onClick={redeemNow}
-                  disabled={redeemBusy}
-                  className={`w-full rounded-xl px-4 py-2 text-white ${
-                    redeemBusy ? "bg-gray-400" : "bg-emerald-600 hover:bg-emerald-700"
-                  }`}
-                >
-                  {redeemBusy ? "Starting..." : `Start ${postpay.product.toUpperCase()} • ${postpay.minutes} min`}
-                </button>
-                {redeemMsg && <div className="mt-2 text-xs text-gray-700">{redeemMsg}</div>}
-              </div>
+            <div className="rounded-xl bg-gray-900 text-gray-100 p-3 text-sm overflow-x-auto mb-3">
+              <code>{commandText || "…"}</code>
+            </div>
 
-              <div className="rounded-xl border p-4">
-                <div className="text-sm font-semibold mb-2">Option B — Run from your terminal</div>
-                <p className="text-xs text-gray-600 mb-2">
-                  This command just redeems your <b>ORDER_TOKEN</b> with our backend and queues your job. You can run it
-                  from any machine; <b>do not</b> run on your Akash host VM.
-                </p>
-                <pre className="text-xs bg-gray-900 text-white rounded-lg p-3 overflow-x-auto">
-{postpay.cmd}
-                </pre>
-                <div className="flex gap-2 mt-2">
-                  <button
-                    className="rounded-lg bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 text-sm"
-                    onClick={() => copy(postpay.cmd)}
-                  >
-                    Copy command
-                  </button>
-                  <button
-                    className="rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 text-sm"
-                    onClick={() => copy(postpay.token)}
-                    title="For support/debugging"
-                  >
-                    Copy token only
-                  </button>
-                </div>
-              </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => navigator.clipboard.writeText(commandText)}
+                className="bg-slate-800 hover:bg-slate-900 text-white rounded-lg px-3 py-2"
+              >
+                Copy command
+              </button>
+              <button
+                onClick={() => navigator.clipboard.writeText(orderToken)}
+                className="bg-gray-200 hover:bg-gray-300 rounded-lg px-3 py-2"
+              >
+                Copy token only
+              </button>
             </div>
 
             <details className="mt-4 text-xs text-gray-600">
               <summary className="cursor-pointer font-semibold">What about time limits?</summary>
               <div className="mt-2">
-                Your token encodes the product and minutes you purchased. Our server enforces the duration (e.g. stops the
-                container when time is up). Extra usage requires another token.
+                Your token encodes the product (<code>{modalProduct}</code>) and minutes. Our server enforces duration
+                (stops the container when time is up). Extra usage requires another token.
               </div>
             </details>
           </div>
