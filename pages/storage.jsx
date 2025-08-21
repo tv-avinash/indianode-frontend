@@ -15,6 +15,9 @@ export default function StoragePage() {
   const SALES_OPEN = String(process.env.NEXT_PUBLIC_SALES_OPEN || "1") !== "0";
   const ALLOW_PAY_WHEN_BUSY =
     String(process.env.NEXT_PUBLIC_ALLOW_PAY_WHEN_BUSY || "0") === "1";
+  // Hide monthly card links by default to avoid confusion
+  const SHOW_CARD_LINKS =
+    String(process.env.NEXT_PUBLIC_SHOW_CARD_LINKS || "0") === "1";
 
   // ----- Provider lock -----
   const ATTR_KEY = process.env.NEXT_PUBLIC_PROVIDER_ATTR_KEY || "org";
@@ -28,7 +31,7 @@ export default function StoragePage() {
       .trim()
       .replace(/^https?:\/\/rzp\.io\/(https?:\/\/rzp\.io\/)+/i, "https://rzp.io/");
 
-  // Subscription (monthly) payment links (optional)
+  // (Optional) monthly subscription links – hidden unless SHOW_CARD_LINKS=1
   const LINKS = {
     g200: cleanRzp(process.env.NEXT_PUBLIC_RZP_200_MULTI || ""),
     g500: cleanRzp(process.env.NEXT_PUBLIC_RZP_500_MULTI || ""),
@@ -77,7 +80,7 @@ export default function StoragePage() {
   const busy = status !== "available";
   const canSell = SALES_OPEN && (ALLOW_PAY_WHEN_BUSY || !busy);
 
-  // ----- Monthly storage prices (INR) with safe mapping & optional env overrides -----
+  // ----- Monthly storage prices (INR) with optional env overrides -----
   const PRICE = useMemo(
     () => ({
       g200: Number(process.env.NEXT_PUBLIC_PRICE_200_INR || 399),  // 200 Gi
@@ -214,6 +217,7 @@ deployment:
   // ----- Preload modal (ORDER_TOKEN) -----
   const [modalOpen, setModalOpen] = useState(false);
   const [modalPlan, setModalPlan] = useState("200Gi");
+  the}
   const [email, setEmail] = useState("");
   const [ref, setRef] = useState(""); // Razorpay payment id (pay_...)
   const [token, setToken] = useState("");
@@ -356,13 +360,12 @@ deployment:
               <i> running</i> on Indianode:
               <ul className="list-disc pl-5 mt-1 space-y-1">
                 <li>
-                  In <b>Cloudmos</b> or <b>Akash Console</b>, open the app and
-                  click <b>Shell/Exec</b> to get a terminal{" "}
-                  <i>inside the container</i>.
+                  In <b>Cloudmos</b> / <b>Akash Console</b>, open{" "}
+                  <b>Shell/Exec</b> to get a terminal <i>inside the container</i>.
                 </li>
                 <li>
-                  Verify volume: <code>df -h | grep /data</code> should show your
-                  {` `}{modalPlan} dataset.
+                  Verify volume: <code>df -h | grep /data</code> should show your{" "}
+                  {modalPlan} dataset.
                 </li>
                 <li>
                   Then run:
@@ -486,6 +489,12 @@ deployment:
 
         <main className="flex-1 flex items-center justify-center">
           <div className="w-full max-w-6xl mx-auto px-4">
+            {/* Clear note: you pay AKT on Akash; this page only offers optional Preload */}
+            <div className="mb-4 rounded-xl bg-blue-50 border border-blue-100 p-3 text-sm text-blue-900 text-center">
+              Deploy with the locked SDL and pay <b>AKT</b> on the Akash marketplace as usual.
+              This page does <b>not</b> charge monthly. <b>Preload</b> is an optional paid add-on.
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {plans.map((p) => (
                 <div
@@ -512,6 +521,7 @@ deployment:
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-2">
+                    {/* Akash deployment (locked SDL) */}
                     {SHOW_AKASH && (
                       <>
                         <button
@@ -531,7 +541,8 @@ deployment:
                       </>
                     )}
 
-                    {canSell ? (
+                    {/* Monthly Card/UPI — hidden by default */}
+                    {SHOW_CARD_LINKS && canSell ? (
                       LINKS[p.key] ? (
                         <a
                           href={LINKS[p.key]}
@@ -567,13 +578,9 @@ deployment:
                           Set payment link
                         </button>
                       )
-                    ) : (
-                      <div className="col-span-2 text-center text-sm text-gray-600">
-                        Card/UPI disabled
-                        {busy && !ALLOW_PAY_WHEN_BUSY ? " • GPU busy" : ""}
-                      </div>
-                    )}
+                    ) : null}
 
+                    {/* Preload add-on (ORDER_TOKEN) */}
                     <button
                       onClick={() => openPreload(p.size)}
                       className="col-span-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl px-3 py-2"
