@@ -33,11 +33,16 @@ export default function StoragePage() {
     g1tb: cleanRzp(process.env.NEXT_PUBLIC_RZP_1TB_MULTI || ""),
   };
 
-  // Razorpay Payment Links for PRELOAD add-on (per plan)
+  // ---- LEGACY single preload link fallback ----
+  const LEGACY_PRELOAD_LINK = cleanRzp(
+    process.env.NEXT_PUBLIC_RZP_PRELOAD_MULTI || ""
+  );
+
+  // Razorpay Payment Links for PRELOAD add-on (per plan) with legacy fallback
   const LINKS_PRELOAD = {
-    "200Gi": cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_200 || ""),
-    "500Gi": cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_500 || ""),
-    "1TiB": cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_1TB || ""),
+    "200Gi": cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_200 || LEGACY_PRELOAD_LINK),
+    "500Gi": cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_500 || LEGACY_PRELOAD_LINK),
+    "1TiB": cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_1TB || LEGACY_PRELOAD_LINK),
   };
 
   // ---------- runtime ----------
@@ -62,19 +67,24 @@ export default function StoragePage() {
   const busy = status !== "available";
   const canSell = SALES_OPEN && (ALLOW_PAY_WHEN_BUSY || !busy);
 
+  // Monthly storage pricing (you can env-drive these if you want)
   const PRICE = useMemo(
     () => ({ g200: 399, g500: 799, g1tb: 1499 }),
     []
   );
 
-  // ---- Preload price per plan (shown in modal) ----
+  // ---- Preload price per plan (defaults), with LEGACY single price fallback ----
+  const LEGACY_PRELOAD_PRICE = Number(
+    process.env.NEXT_PUBLIC_PRELOAD_INR || 0
+  ); // if you had only one price before
+
   const PRELOAD_PRICE = useMemo(
     () => ({
-      "200Gi": Number(process.env.NEXT_PUBLIC_PRELOAD_200_INR || 499),
-      "500Gi": Number(process.env.NEXT_PUBLIC_PRELOAD_500_INR || 799),
-      "1TiB": Number(process.env.NEXT_PUBLIC_PRELOAD_1TB_INR || 1199),
+      "200Gi": Number(process.env.NEXT_PUBLIC_PRELOAD_200_INR || LEGACY_PRELOAD_PRICE || 499),
+      "500Gi": Number(process.env.NEXT_PUBLIC_PRELOAD_500_INR || LEGACY_PRELOAD_PRICE || 799),
+      "1TiB": Number(process.env.NEXT_PUBLIC_PRELOAD_1TB_INR || LEGACY_PRELOAD_PRICE || 1199),
     }),
-    []
+    [LEGACY_PRELOAD_PRICE]
   );
 
   const toUSD = (inr) =>
@@ -201,7 +211,7 @@ deployment:
       return;
     }
     if (!/^pay_[a-zA-Z0-9]+$/.test(ref)) {
-      setTokenMsg("Invalid payment id. Use the Razorpay payment id that starts with pay_.");
+      setTokenMsg("Invalid payment id. Use the id that starts with pay_.");
       return;
     }
     setLoadingToken(true);

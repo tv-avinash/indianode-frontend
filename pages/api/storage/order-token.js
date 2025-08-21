@@ -7,13 +7,15 @@ function inrToPaise(x) {
   return Math.round(n * 100);
 }
 
+// Expected price per plan (paise), with LEGACY single-price fallback
 function expectedPricePaise(plan) {
+  const legacy = process.env.PRELOAD_PRICE_INR || ""; // old single price
   const map = {
-    "200Gi": process.env.PRELOAD_PRICE_200_INR || "499",
-    "500Gi": process.env.PRELOAD_PRICE_500_INR || "799",
-    "1TiB": process.env.PRELOAD_PRICE_1TB_INR || "1199",
+    "200Gi": process.env.PRELOAD_PRICE_200_INR || legacy || "499",
+    "500Gi": process.env.PRELOAD_PRICE_500_INR || legacy || "799",
+    "1TiB": process.env.PRELOAD_PRICE_1TB_INR || legacy || "1199",
   };
-  return inrToPaise(map[plan] ?? "499");
+  return inrToPaise(map[plan] ?? legacy || "499");
 }
 
 export default async function handler(req, res) {
@@ -31,7 +33,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "invalid_plan" });
     }
     if (!/^pay_[a-zA-Z0-9]+$/.test(ref)) {
-      // Require a Razorpay payment id (not a link code)
       return res.status(400).json({ error: "invalid_payment_id" });
     }
 
@@ -42,7 +43,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: "server_not_configured" });
     }
 
-    // Lookup payment on Razorpay (works in Test Mode with test keys)
+    // Lookup payment on Razorpay
     const basic = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
     const rsp = await fetch(`https://api.razorpay.com/v1/payments/${ref}`, {
       headers: { Authorization: `Basic ${basic}` },
