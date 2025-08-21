@@ -165,7 +165,7 @@ deployment:
   const [modalOpen, setModalOpen] = useState(false);
   const [modalPlan, setModalPlan] = useState("200Gi");
   const [email, setEmail] = useState("");
-  const [ref, setRef] = useState(""); // payment reference (Razorpay payment_id/notes)
+  const [ref, setRef] = useState(""); // Razorpay payment_id or your reference
   const [token, setToken] = useState("");
   const [tokenMsg, setTokenMsg] = useState("");
   const [loadingToken, setLoadingToken] = useState(false);
@@ -192,10 +192,11 @@ deployment:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: userEmail, plan: modalPlan, ref }),
       });
-      const j = await r.json();
-      if (!r.ok || !j?.token) {
-        throw new Error(j?.error || "Could not issue token");
-      }
+      const text = await r.text();        // robust parse to avoid “Unexpected end of JSON input”
+      let j;
+      try { j = JSON.parse(text); } catch { j = { error: text || "invalid_response" }; }
+      if (!r.ok || !j?.token) throw new Error(j?.error || "token_failed");
+
       setToken(j.token);
       setTokenMsg("Token issued. Use the command below inside your container.");
       gaEvent("generate_lead", { method: "order_token", plan: modalPlan });
@@ -467,8 +468,7 @@ deployment:
                       )
                     ) : (
                       <div className="col-span-2 text-center text-sm text-gray-600">
-                        Card/UPI disabled
-                        {busy && !ALLOW_PAY_WHEN_BUSY ? " • GPU busy" : ""}
+                        Card/UPI disabled{busy && !ALLOW_PAY_WHEN_BUSY ? " • GPU busy" : ""}
                       </div>
                     )}
 
