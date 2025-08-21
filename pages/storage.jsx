@@ -1,7 +1,7 @@
-// pages/storage.js
+// pages/storage.jsx
 
 export default function StoragePage() {
-  // ----- Pricing (edit INR if you change prices) -----
+  // ----- Pricing (INR) -----
   const PRICE = { g200: 399, g500: 799, g1tb: 1499, preload: 499 };
 
   // ----- USD display (override with NEXT_PUBLIC_USD_INR on Vercel) -----
@@ -21,16 +21,18 @@ export default function StoragePage() {
     ? `${base.replace(/\/+$/, "")}/storage/preload.sh`
     : `${origin}/downloads/scripts/preload.sh`;
 
-  // ----- Razorpay links (single source of truth via env) -----
+  // ----- Clean any accidental double-prefix in Razorpay URLs -----
   const cleanRzp = (u) =>
     (u || "")
       .trim()
       .replace(/^https?:\/\/rzp\.io\/(https?:\/\/rzp\.io\/)+/i, "https://rzp.io/");
+
+  // ----- Razorpay links from Vercel env (single source of truth) -----
   const LINKS = {
-    g200: cleanRzp(process.env.NEXT_PUBLIC_RZP_200 || ""),
-    g500: cleanRzp(process.env.NEXT_PUBLIC_RZP_500 || ""),
-    g1tb: cleanRzp(process.env.NEXT_PUBLIC_RZP_1TB || ""),
-    preload: cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD || ""),
+    g200: cleanRzp(process.env.NEXT_PUBLIC_RZP_200_MULTI || ""),
+    g500: cleanRzp(process.env.NEXT_PUBLIC_RZP_500_MULTI || ""),
+    g1tb: cleanRzp(process.env.NEXT_PUBLIC_RZP_1TB_MULTI || ""),
+    preload: cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_MULTI || ""),
   };
 
   const PlanCard = ({ title, desc, inr, href }) => (
@@ -69,7 +71,7 @@ export default function StoragePage() {
         <div className="grid">
           <PlanCard
             title="200 Gi"
-            desc="Great for checkpoints, HF snapshots"
+            desc="Great for checkpoints & HF snapshots"
             inr={PRICE.g200}
             href={LINKS.g200}
           />
@@ -99,7 +101,7 @@ export default function StoragePage() {
           <div>
             <h3>Self-serve Preload (one-time)</h3>
             <p className="muted">
-              We provide a script to pull popular models/datasets into <code>/data</code>.
+              Script to pull popular models/datasets into <code>/data</code>.
             </p>
           </div>
           <div className="price">
@@ -204,16 +206,8 @@ export default function StoragePage() {
         .card:hover { box-shadow: 0 10px 24px rgba(2, 6, 23, 0.08); transform: translateY(-2px); transition: all 160ms ease; }
         .preload { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 14px; }
 
-        .price {
-          font-weight: 700;
-          font-size: 22px;
-        }
-        .usd {
-          font-weight: 500;
-          font-size: 14px;
-          color: #64748b;
-          margin-left: 8px;
-        }
+        .price { font-weight: 700; font-size: 22px; }
+        .usd { font-weight: 500; font-size: 14px; color: #64748b; margin-left: 8px; }
 
         .btn {
           background: #2563eb;
