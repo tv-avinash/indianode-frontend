@@ -217,7 +217,6 @@ deployment:
   // ----- Preload modal (ORDER_TOKEN) -----
   const [modalOpen, setModalOpen] = useState(false);
   const [modalPlan, setModalPlan] = useState("200Gi");
-  the}
   const [email, setEmail] = useState("");
   const [ref, setRef] = useState(""); // Razorpay payment id (pay_...)
   const [token, setToken] = useState("");
