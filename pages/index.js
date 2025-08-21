@@ -308,6 +308,21 @@ export default function Home() {
             Current GPU Status: <span className="font-semibold">{status}</span>
           </p>
 
+          {/* Storage promo / CTA */}
+          <div className="max-w-3xl mx-auto mb-8">
+            <div className="rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-center">
+              <p className="mb-3 text-gray-800">
+                Need fast <b>same-host NVMe storage</b> for your Akash lease?
+              </p>
+              <Link
+                href="/storage"
+                className="inline-block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2"
+              >
+                Explore Storage (200 Gi / 500 Gi / 1 TiB)
+              </Link>
+            </div>
+          </div>
+
           {/* Buyer inputs */}
           <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 mb-8">
             <div className="grid md:grid-cols-3 gap-4">
@@ -510,6 +525,7 @@ export default function Home() {
             <Link href="/whisper-gpu" className="text-blue-600 hover:underline">Whisper</Link>
             <Link href="/sdls" className="text-blue-600 hover:underline">SDLS</Link>
             <Link href="/llm-hosting" className="text-blue-600 hover:underline">LLM</Link>
+            <Link href="/storage" className="text-blue-600 hover:underline">Storage</Link>
           </nav>
           © 2025 Indianode
         </footer>
