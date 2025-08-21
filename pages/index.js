@@ -26,11 +26,9 @@ export default function Home() {
   const [wlMsg, setWlMsg] = useState("");
   const [msg, setMsg] = useState("");
 
-  // Toggle PayPal with env (0/1)
+  // Toggles
   const enablePayPal =
     String(process.env.NEXT_PUBLIC_ENABLE_PAYPAL || "0") === "1";
-
-  // Show Akash deploy button (0/1)
   const SHOW_AKASH =
     String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
 
@@ -263,6 +261,12 @@ export default function Home() {
     }
   };
 
+  // Scroll helper to inputs/waitlist
+  const scrollToWaitlist = () => {
+    const el = document.getElementById("buyer-inputs");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <>
       <Head>
@@ -275,7 +279,10 @@ export default function Home() {
 
         {/* Open Graph / Twitter */}
         <meta property="og:title" content="Indianode — GPU Hosting on RTX 3090" />
-        <meta property="og:description" content="GPU hosting for SDLS, Whisper, and LLM workloads on 24GB RTX 3090." />
+        <meta
+          property="og:description"
+          content="GPU hosting for SDLS, Whisper, and LLM workloads on 24GB RTX 3090."
+        />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://www.indianode.com/" />
         <meta name="twitter:card" content="summary_large_image" />
@@ -289,7 +296,7 @@ export default function Home() {
               "@type": "Organization",
               name: "Indianode",
               url: "https://www.indianode.com",
-              logo: "https://www.indianode.com/logo.png"
+              logo: "https://www.indianode.com/logo.png",
             }),
           }}
         />
@@ -304,8 +311,8 @@ export default function Home() {
               potentialAction: {
                 "@type": "SearchAction",
                 target: "https://www.indianode.com/?q={search_term_string}",
-                "query-input": "required name=search_term_string"
-              }
+                "query-input": "required name=search_term_string",
+              },
             }),
           }}
         />
@@ -323,31 +330,84 @@ export default function Home() {
             3090 GPU on demand • India & International payments
           </h1>
           <p className="text-center mb-6 text-lg">
-            Current GPU Status: <span className="font-semibold">{status}</span>
+            Current GPU Status:{" "}
+            <span className={`font-semibold ${busy ? "text-amber-700" : "text-emerald-700"}`}>
+              {status}
+            </span>
           </p>
 
-          {/* Storage promo / CTA */}
-          <div className="max-w-3xl mx-auto mb-8">
-            <div className="rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-center">
-              <p className="mb-3 text-gray-800">
-                Need fast <b>same-host NVMe storage</b> for your Akash lease?
-              </p>
-              <Link
-                href="/storage"
-                className="inline-block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2"
-              >
-                Explore Storage (200 Gi / 500 Gi / 1 TiB)
-              </Link>
-            </div>
+          {/* Status-aware hero */}
+          <div className="max-w-4xl mx-auto mb-8">
+            {busy ? (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-center">
+                <p className="mb-3 text-amber-900">
+                  <b>GPU busy.</b> You can still deploy on Akash to queue, join the waitlist, or
+                  use our fast same-host NVMe storage.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <button
+                    onClick={() => {
+                      scrollToWaitlist();
+                      gaEvent("select_content", { item_id: "waitlist_cta" });
+                    }}
+                    className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2"
+                  >
+                    Notify me when free
+                  </button>
+                  <Link
+                    href="/storage"
+                    className="rounded-xl bg-slate-800 hover:bg-slate-900 text-white px-4 py-2"
+                    onClick={() =>
+                      gaEvent("select_content", { item_id: "storage_cta_busy" })
+                    }
+                  >
+                    Explore Storage (200 Gi / 500 Gi / 1 TiB)
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-center">
+                <p className="mb-3 text-emerald-900">
+                  <b>GPU available.</b> Deploy now on Akash with our ready SDLs.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <Link
+                    href="/whisper-gpu"
+                    className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2"
+                    onClick={() =>
+                      gaEvent("select_content", { item_id: "deploy_akash_whisper_top" })
+                    }
+                  >
+                    Whisper (SDL)
+                  </Link>
+                  <Link
+                    href="/sdls"
+                    className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2"
+                    onClick={() =>
+                      gaEvent("select_content", { item_id: "deploy_akash_sd_top" })
+                    }
+                  >
+                    Stable Diffusion (SDL)
+                  </Link>
+                  <Link
+                    href="/llm-hosting"
+                    className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2"
+                    onClick={() =>
+                      gaEvent("select_content", { item_id: "deploy_akash_llama_top" })
+                    }
+                  >
+                    LLaMA (SDL)
+                  </Link>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Buyer inputs */}
-          <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 mb-8">
+          <div id="buyer-inputs" className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 mb-8">
             <div className="grid md:grid-cols-3 gap-4">
               <label className="flex flex-col">
-                <span className="text-sm font-semibold mb-1">
-                  Your email (for receipts)
-                </span>
+                <span className="text-sm font-semibold mb-1">Your email (for receipts)</span>
                 <input
                   type="email"
                   value={email}
@@ -365,9 +425,7 @@ export default function Home() {
                   min="1"
                   max="240"
                   value={minutes}
-                  onChange={(e) =>
-                    setMinutes(Math.max(1, Number(e.target.value || 1)))
-                  }
+                  onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
                   className="border rounded-lg px-3 py-2"
                   disabled={loading}
                 />
@@ -388,8 +446,7 @@ export default function Home() {
             {busy && (
               <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
                 <div className="text-sm text-amber-800 mb-3">
-                  GPU is busy. You can still pay now (we’ll queue it) or join the
-                  waitlist:
+                  GPU is busy. You can still pay now (we’ll queue it) or join the waitlist:
                 </div>
                 <div className="grid md:grid-cols-3 gap-3">
                   <label className="flex flex-col">
@@ -403,9 +460,7 @@ export default function Home() {
                     />
                   </label>
                   <label className="flex flex-col">
-                    <span className="text-xs font-semibold mb-1">
-                      Interested in
-                    </span>
+                    <span className="text-xs font-semibold mb-1">Interested in</span>
                     <select
                       value={interest}
                       onChange={(e) => setInterest(e.target.value)}
@@ -454,10 +509,8 @@ export default function Home() {
                     <p className="text-gray-600 mb-3">{t.desc}</p>
 
                     <p className="text-gray-800">
-                      <span className="font-semibold">
-                        Price for {minutes} min:
-                      </span>{" "}
-                      ₹{inr} / ${usd.toFixed(2)}
+                      <span className="font-semibold">Price for {minutes} min:</span> ₹{inr} / $
+                      {usd.toFixed(2)}
                     </p>
 
                     {promoActive && (
@@ -491,9 +544,7 @@ export default function Home() {
                     {/* Existing pay buttons (kept intact) */}
                     <button
                       className={`text-white px-4 py-2 rounded-xl ${
-                        disabled
-                          ? "bg-gray-400 cursor-not-allowed"
-                          : "bg-indigo-600 hover:bg-indigo-700"
+                        disabled ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
                       }`}
                       onClick={() =>
                         payWithRazorpay({ product: t.key, displayName: t.name })
@@ -506,13 +557,9 @@ export default function Home() {
                     {enablePayPal && (
                       <button
                         className={`text-white px-4 py-2 rounded-xl ${
-                          disabled
-                            ? "bg-gray-400 cursor-not-allowed"
-                            : "bg-slate-700 hover:bg-slate-800"
+                          disabled ? "bg-gray-400 cursor-not-allowed" : "bg-slate-700 hover:bg-slate-800"
                         }`}
-                        onClick={() =>
-                          payWithPayPal({ product: t.key, amountUsd: usd })
-                        }
+                        onClick={() => payWithPayPal({ product: t.key, amountUsd: usd })}
                         disabled={disabled}
                       >
                         Pay ${usd.toFixed(2)} • PayPal (USD)
@@ -520,8 +567,8 @@ export default function Home() {
                     )}
 
                     <p className="text-[11px] text-gray-500 mt-1">
-                      Billed in INR via Razorpay. USD shown is an approximate
-                      amount based on today’s rate.
+                      Billed in INR via Razorpay. USD shown is an approximate amount based on
+                      today’s rate.
                     </p>
                   </div>
                 </div>
@@ -531,16 +578,10 @@ export default function Home() {
         </main>
 
         <section className="mt-16 border-t pt-10 pb-6 text-center text-sm text-gray-700">
-          <p className="mb-2">
-            💬 Looking for custom pricing, discounts, or rate concessions? Reach
-            out:
-          </p>
+          <p className="mb-2">💬 Looking for custom pricing, discounts, or rate concessions? Reach out:</p>
           <p>
             Email:{" "}
-            <a
-              href="mailto:tvavinash@gmail.com"
-              className="text-blue-600 hover:underline"
-            >
+            <a href="mailto:tvavinash@gmail.com" className="text-blue-600 hover:underline">
               tvavinash@gmail.com
             </a>
           </p>
@@ -550,19 +591,25 @@ export default function Home() {
               +919902818004
             </a>
           </p>
-          <p className="mt-3 text-xs text-gray-400">
-            We usually reply within 24 hours.
-          </p>
+          <p className="mt-3 text-xs text-gray-400">We usually reply within 24 hours.</p>
         </section>
 
         <footer className="p-4 text-center text-sm text-gray-600">
           <nav className="mb-2 space-x-4">
-            <Link href="/whisper-gpu" className="text-blue-600 hover:underline">Whisper</Link>
-            <Link href="/sdls" className="text-blue-600 hover:underline">SDLS</Link>
-            <Link href="/llm-hosting" className="text-blue-600 hover:underline">LLM</Link>
-            <Link href="/storage" className="text-blue-600 hover:underline">Storage</Link>
+            <Link href="/whisper-gpu" className="text-blue-600 hover:underline">
+              Whisper
+            </Link>
+            <Link href="/sdls" className="text-blue-600 hover:underline">
+              SDLS
+            </Link>
+            <Link href="/llm-hosting" className="text-blue-600 hover:underline">
+              LLM
+            </Link>
+            <Link href="/storage" className="text-blue-600 hover:underline">
+              Storage
+            </Link>
           </nav>
-          © 2025 Indianode
+          © {new Date().getFullYear()} Indianode
         </footer>
       </div>
     </>
