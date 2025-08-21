@@ -2,21 +2,16 @@
 
 export default function StoragePage() {
   // --- Pricing (INR) ---
-  const PRICE = {
-    g200: 399,
-    g500: 799,
-    g1tb: 1499,
-    preload: 499,
-  };
+  const PRICE = { g200: 399, g500: 799, g1tb: 1499, preload: 499 };
 
-  // --- Currency (configure via Vercel env if you like) ---
+  // --- USD display (override with NEXT_PUBLIC_USD_INR on Vercel) ---
   const USD_INR =
     typeof process !== "undefined" && process.env.NEXT_PUBLIC_USD_INR
       ? Number(process.env.NEXT_PUBLIC_USD_INR)
-      : 87; // fallback FX rate
+      : 87; // fallback FX
   const usd = (inr) => (inr / USD_INR).toFixed(2);
 
-  // --- Script endpoint: backend if set, else static file on this domain ---
+  // --- Script endpoint: backend if set, else static on this domain ---
   const base = process.env.NEXT_PUBLIC_DEPLOYER_BASE || "";
   const origin =
     typeof window !== "undefined" && window.location?.origin
@@ -26,8 +21,8 @@ export default function StoragePage() {
     ? `${base.replace(/\/+$/, "")}/storage/preload.sh`
     : `${origin}/downloads/scripts/preload.sh`;
 
-  // --- Razorpay Payment Links ---
-  // UPI-only (you already created these)
+  // --- Razorpay links ---
+  // ✅ Your existing UPI-only links (from your screenshot)
   const LINKS_UPI = {
     g200: "https://rzp.io/rzp/CyxR4B6b",
     g500: "https://rzp.io/rzp/BOliiR2I",
@@ -35,37 +30,39 @@ export default function StoragePage() {
     preload: "https://rzp.io/rzp/EQpOkv2",
   };
 
-  // Multi-mode (cards/UPI/wallets; paste your new Razorpay Payment Link URLs here)
+  // 🔁 Multi-mode (Cards/UPI/Wallets/Global): set these in Vercel env
+  //   NEXT_PUBLIC_RZP_200_MULTI, NEXT_PUBLIC_RZP_500_MULTI,
+  //   NEXT_PUBLIC_RZP_1TB_MULTI, NEXT_PUBLIC_RZP_PRELOAD_MULTI
   const LINKS_MULTI = {
-    g200: "https://rzp.io/rzp/PASTE_200_MULTI",     // <-- replace
-    g500: "https://rzp.io/rzp/PASTE_500_MULTI",     // <-- replace
-    g1tb: "https://rzp.io/rzp/PASTE_1TB_MULTI",     // <-- replace
-    preload: "https://rzp.io/rzp/PASTE_PRELOAD_MULTI", // <-- replace
+    g200: process.env.NEXT_PUBLIC_RZP_200_MULTI || "",
+    g500: process.env.NEXT_PUBLIC_RZP_500_MULTI || "",
+    g1tb: process.env.NEXT_PUBLIC_RZP_1TB_MULTI || "",
+    preload: process.env.NEXT_PUBLIC_RZP_PRELOAD_MULTI || "",
   };
+  const showMulti = Object.values(LINKS_MULTI).some(Boolean);
 
-  // Optional direct UPI intent (backup). Replace YOURUPI@bank if you want to show it.
+  // Optional direct UPI intent links (mobile apps)
   const UPI_INTENT = {
-    g200: "upi://pay?pa=YOURUPI@bank&pn=Indianode&am=399&cu=INR&tn=Dataset%20Cache%20200Gi",
-    g500: "upi://pay?pa=YOURUPI@bank&pn=Indianode&am=799&cu=INR&tn=Dataset%20Cache%20500Gi",
-    g1tb: "upi://pay?pa=YOURUPI@bank&pn=Indianode&am=1499&cu=INR&tn=Dataset%20Cache%201TiB",
-    preload: "upi://pay?pa=YOURUPI@bank&pn=Indianode&am=499&cu=INR&tn=Self-serve%20Preload",
+    g500:
+      "upi://pay?pa=YOURUPI@bank&pn=Indianode&am=799&cu=INR&tn=Dataset%20Cache%20500Gi",
   };
 
-  const btn = (href, label) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      style={{
-        padding: "10px 14px",
-        border: "1px solid #ddd",
-        borderRadius: 8,
-        display: "inline-block",
-      }}
-    >
-      {label}
-    </a>
-  );
+  const btn = (href, label) =>
+    href ? (
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        style={{
+          padding: "10px 14px",
+          border: "1px solid #ddd",
+          borderRadius: 8,
+          display: "inline-block",
+        }}
+      >
+        {label}
+      </a>
+    ) : null;
 
   return (
     <main style={{ maxWidth: 900, margin: "0 auto", padding: 24, lineHeight: 1.6 }}>
@@ -88,7 +85,7 @@ export default function StoragePage() {
         <li>1 TiB — ₹{PRICE.g1tb} (~${usd(PRICE.g1tb)}/mo)</li>
       </ul>
 
-      {/* BUY BUTTONS — UPI-only */}
+      {/* UPI-only (India) */}
       <h3 style={{ fontSize: 18, fontWeight: 600, marginTop: 12 }}>Pay via UPI (India)</h3>
       <div style={{ display: "grid", gap: 10, marginBottom: 4 }}>
         {btn(LINKS_UPI.g200, `Buy 200 Gi — ₹${PRICE.g200} (~$${usd(PRICE.g200)}/mo)`)}
@@ -96,19 +93,22 @@ export default function StoragePage() {
         {btn(LINKS_UPI.g1tb, `Buy 1 TiB — ₹${PRICE.g1tb} (~$${usd(PRICE.g1tb)}/mo)`)}
       </div>
       <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 16 }}>
-        Prefer a direct UPI app?{" "}
-        <a href={UPI_INTENT.g500}>UPI intent (example for 500 Gi)</a>
+        Prefer a direct UPI app? <a href={UPI_INTENT.g500}>UPI intent (500 Gi example)</a>
       </div>
 
-      {/* BUY BUTTONS — MULTI-MODE */}
-      <h3 style={{ fontSize: 18, fontWeight: 600, marginTop: 10 }}>
-        Pay with Cards / UPI / Wallets (Global)
-      </h3>
-      <div style={{ display: "grid", gap: 10 }}>
-        {btn(LINKS_MULTI.g200, `Buy 200 Gi — ₹${PRICE.g200} (~$${usd(PRICE.g200)}/mo)`)}
-        {btn(LINKS_MULTI.g500, `Buy 500 Gi — ₹${PRICE.g500} (~$${usd(PRICE.g500)}/mo)`)}
-        {btn(LINKS_MULTI.g1tb, `Buy 1 TiB — ₹${PRICE.g1tb} (~$${usd(PRICE.g1tb)}/mo)`)}
-      </div>
+      {/* Cards / UPI / Wallets (Global) — only renders if env links provided */}
+      {showMulti && (
+        <>
+          <h3 style={{ fontSize: 18, fontWeight: 600, marginTop: 10 }}>
+            Pay with Cards / UPI / Wallets (Global)
+          </h3>
+          <div style={{ display: "grid", gap: 10 }}>
+            {btn(LINKS_MULTI.g200, `Buy 200 Gi — ₹${PRICE.g200} (~$${usd(PRICE.g200)}/mo)`)}
+            {btn(LINKS_MULTI.g500, `Buy 500 Gi — ₹${PRICE.g500} (~$${usd(PRICE.g500)}/mo)`)}
+            {btn(LINKS_MULTI.g1tb, `Buy 1 TiB — ₹${PRICE.g1tb} (~$${usd(PRICE.g1tb)}/mo)`)}
+          </div>
+        </>
+      )}
 
       <p style={{ opacity: 0.85, marginTop: 8 }}>
         Request the size you want in your SDL. Volume mounts at <code>/data</code>. Keep ~10–15% free space.
@@ -124,14 +124,17 @@ export default function StoragePage() {
 
       <h2 style={{ fontSize: 20, fontWeight: 600, marginTop: 28 }}>Self-serve Data Preload</h2>
       <p>
-        One-time add-on to pull common models/datasets into <code>/data</code> using our script.
-        Price: ₹{PRICE.preload} (~${usd(PRICE.preload)})
+        One-time add-on to pull common models/datasets into <code>/data</code>. Price: ₹{PRICE.preload} (~$
+        {usd(PRICE.preload)})
       </p>
 
-      {/* Preload buy buttons */}
       <div style={{ display: "grid", gap: 10, marginTop: 6 }}>
         {btn(LINKS_UPI.preload, `Buy Preload (UPI) — ₹${PRICE.preload} (~$${usd(PRICE.preload)})`)}
-        {btn(LINKS_MULTI.preload, `Buy Preload (Cards/UPI) — ₹${PRICE.preload} (~$${usd(PRICE.preload)})`)}
+        {showMulti &&
+          btn(
+            LINKS_MULTI.preload,
+            `Buy Preload (Cards/UPI) — ₹${PRICE.preload} (~$${usd(PRICE.preload)})`
+          )}
       </div>
 
       <p style={{ marginTop: 10 }}>Run this inside your container to populate <code>/data</code>:</p>
