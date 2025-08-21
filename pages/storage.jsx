@@ -16,7 +16,7 @@ export default function StoragePage() {
   const ALLOW_PAY_WHEN_BUSY =
     String(process.env.NEXT_PUBLIC_ALLOW_PAY_WHEN_BUSY || "0") === "1";
 
-  // Provider lock (attribute) + optional address display
+  // Provider lock & display
   const ATTR_KEY = process.env.NEXT_PUBLIC_PROVIDER_ATTR_KEY || "org";
   const ATTR_VAL = process.env.NEXT_PUBLIC_PROVIDER_ATTR_VALUE || "indianode";
   const PROVIDER_ADDR =
@@ -31,9 +31,10 @@ export default function StoragePage() {
     g200: cleanRzp(process.env.NEXT_PUBLIC_RZP_200_MULTI || ""),
     g500: cleanRzp(process.env.NEXT_PUBLIC_RZP_500_MULTI || ""),
     g1tb: cleanRzp(process.env.NEXT_PUBLIC_RZP_1TB_MULTI || ""),
+    preload: cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_MULTI || ""),
   };
 
-  // ---------- runtime state ----------
+  // ---------- runtime ----------
   const [status, setStatus] = useState("checking...");
   const [fx, setFx] = useState(
     Number(process.env.NEXT_PUBLIC_USD_INR ? 1 / Number(process.env.NEXT_PUBLIC_USD_INR) : 0.0116)
@@ -59,6 +60,8 @@ export default function StoragePage() {
     () => ({ g200: 399, g500: 799, g1tb: 1499 }),
     []
   );
+  const PRICE_PRELOAD = Number(process.env.NEXT_PUBLIC_PRELOAD_PRICE_INR || 499);
+
   const toUSD = (inr) =>
     Math.round(((inr || 0) * fx + Number.EPSILON) * 100) / 100;
 
@@ -68,7 +71,17 @@ export default function StoragePage() {
     { key: "g1tb", title: "1 TiB", price: PRICE.g1tb, size: "1TiB" },
   ];
 
-  // ---------- SDL generator (locked to your provider) ----------
+  // For preload.sh URL
+  const base = process.env.NEXT_PUBLIC_DEPLOYER_BASE || "";
+  const origin =
+    typeof window !== "undefined" && window.location?.origin
+      ? window.location.origin
+      : "https://www.indianode.com";
+  const preloadUrl = base
+    ? `${base.replace(/\/+$/, "")}/storage/preload.sh`
+    : `${origin}/downloads/scripts/preload.sh`;
+
+  // ---------- SDL generator (locked) ----------
   function buildLockedSDL(sizeStr) {
     return `version: "2.0"
 
@@ -141,26 +154,219 @@ deployment:
   async function copySDL(sizeStr) {
     try {
       await navigator.clipboard.writeText(buildLockedSDL(sizeStr));
-      alert("SDL copied to clipboard");
+      alert("SDL copied");
       gaEvent("select_content", { content_type: "copy_sdl", item_id: sizeStr });
     } catch {
       alert("Could not copy. Please use Download.");
     }
   }
 
-  // ---------- UI ----------
+  // ---------- Preload Modal (ORDER_TOKEN flow) ----------
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalPlan, setModalPlan] = useState("200Gi");
+  const [email, setEmail] = useState("");
+  const [ref, setRef] = useState(""); // payment reference (Razorpay payment_id/notes)
+  const [token, setToken] = useState("");
+  const [tokenMsg, setTokenMsg] = useState("");
+  const [loadingToken, setLoadingToken] = useState(false);
+
+  function openPreload(planSize) {
+    setModalPlan(planSize);
+    setModalOpen(true);
+    setToken("");
+    setTokenMsg("");
+  }
+
+  async function claimToken() {
+    setToken("");
+    setTokenMsg("");
+    const userEmail = (email || "").trim();
+    if (!userEmail || !ref) {
+      setTokenMsg("Enter your email and payment reference.");
+      return;
+    }
+    setLoadingToken(true);
+    try {
+      const r = await fetch("/api/storage/order-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: userEmail, plan: modalPlan, ref }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j?.token) {
+        throw new Error(j?.error || "Could not issue token");
+      }
+      setToken(j.token);
+      setTokenMsg("Token issued. Use the command below inside your container.");
+      gaEvent("generate_lead", { method: "order_token", plan: modalPlan });
+    } catch (e) {
+      setTokenMsg(e.message || "Server error creating token");
+    } finally {
+      setLoadingToken(false);
+    }
+  }
+
+  function buildPreloadCmd(tok) {
+    return `curl -fsSL ${preloadUrl} | ORDER_TOKEN=${tok} bash`;
+  }
+
+  async function copyPreloadCmd() {
+    if (!token) {
+      setTokenMsg("Get a token first.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(buildPreloadCmd(token));
+      setTokenMsg("Command copied.");
+    } catch {
+      setTokenMsg("Could not copy. Select and copy manually.");
+    }
+  }
+
+  const Modal = () =>
+    !modalOpen ? null : (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/50" onClick={() => setModalOpen(false)} />
+        <div className="relative bg-white w-full max-w-xl mx-4 rounded-2xl shadow-lg p-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold">Preload Add-on (requires ORDER_TOKEN)</h3>
+            <button
+              onClick={() => setModalOpen(false)}
+              className="text-gray-500 hover:text-gray-800"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="text-sm text-gray-700">
+            <p className="mb-2">
+              Price: <b>₹{PRICE_PRELOAD}</b> (~${toUSD(PRICE_PRELOAD)})
+            </p>
+            <ol className="list-decimal pl-5 space-y-1">
+              <li>
+                <b>Pay</b> for Preload {LINKS.preload ? (
+                  <a
+                    href={LINKS.preload}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-600 hover:underline"
+                    onClick={() =>
+                      gaEvent("begin_checkout", {
+                        value: PRICE_PRELOAD,
+                        currency: "INR",
+                        items: [{ item_id: "preload", item_name: "preload", item_category: "storage", quantity: 1, price: PRICE_PRELOAD }],
+                        payment_method: "razorpay_link",
+                      })
+                    }
+                  >
+                    here
+                  </a>
+                ) : (
+                  <span className="text-red-600">(set link in Vercel)</span>
+                )}.
+              </li>
+              <li>
+                Enter your <b>email</b> and <b>payment ref</b> below to get your <b>ORDER_TOKEN</b>.
+              </li>
+              <li>
+                Inside your container, run the command with <b>ORDER_TOKEN</b> to preload datasets/models into <code>/data</code>.
+              </li>
+            </ol>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+            <label className="flex flex-col">
+              <span className="text-xs font-semibold mb-1">Plan</span>
+              <select
+                value={modalPlan}
+                onChange={(e) => setModalPlan(e.target.value)}
+                className="border rounded-lg px-3 py-2"
+              >
+                <option value="200Gi">200 Gi</option>
+                <option value="500Gi">500 Gi</option>
+                <option value="1TiB">1 TiB</option>
+              </select>
+            </label>
+            <label className="flex flex-col">
+              <span className="text-xs font-semibold mb-1">Email</span>
+              <input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="border rounded-lg px-3 py-2"
+              />
+            </label>
+            <label className="flex flex-col">
+              <span className="text-xs font-semibold mb-1">Payment ref</span>
+              <input
+                value={ref}
+                onChange={(e) => setRef(e.target.value)}
+                placeholder="razorpay_payment_id"
+                className="border rounded-lg px-3 py-2"
+              />
+            </label>
+          </div>
+
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={claimToken}
+              disabled={loadingToken}
+              className={`px-4 py-2 rounded-xl text-white ${
+                loadingToken ? "bg-gray-400" : "bg-emerald-600 hover:bg-emerald-700"
+              }`}
+            >
+              {loadingToken ? "Issuing…" : "Get ORDER_TOKEN"}
+            </button>
+            {token && (
+              <button
+                onClick={copyPreloadCmd}
+                className="px-4 py-2 rounded-xl border border-gray-300 hover:bg-gray-50"
+              >
+                Copy Preload Command
+              </button>
+            )}
+          </div>
+
+          {token && (
+            <div className="mt-3">
+              <div className="text-xs text-gray-600 mb-1">Your ORDER_TOKEN</div>
+              <div className="font-mono text-sm bg-gray-100 rounded-lg p-2 break-all">
+                {token}
+              </div>
+            </div>
+          )}
+
+          <div className="mt-3">
+            <div className="text-xs text-gray-600 mb-1">Run inside your container</div>
+            <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 overflow-x-auto text-xs">
+              <code>{buildPreloadCmd(token || "<PASTE_TOKEN_HERE>")}</code>
+            </pre>
+          </div>
+
+          {tokenMsg && (
+            <div className="mt-3 text-sm text-gray-700">{tokenMsg}</div>
+          )}
+
+          <div className="mt-4 text-xs text-gray-500">
+            The script verifies your <b>ORDER_TOKEN</b> and that the lease runs on{" "}
+            <code>{PROVIDER_ADDR}</code>. Without a valid token, preload will refuse.
+          </div>
+        </div>
+      </div>
+    );
+
+  // ---------- UI (compact / single screen) ----------
   return (
     <>
       <Head>
         <title>Indianode Storage — Same-host NVMe for Akash</title>
         <meta
           name="description"
-          content="Provider-locked SDLs for fast same-host NVMe (/data). Choose 200 Gi / 500 Gi / 1 TiB. Optional Card/UPI."
+          content="Provider-locked SDLs for fast same-host NVMe (/data). Choose 200 Gi / 500 Gi / 1 TiB. Optional Preload with ORDER_TOKEN."
         />
         <link rel="canonical" href="https://www.indianode.com/storage" />
       </Head>
 
-      {/* Single-screen layout */}
       <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
         <header className="px-6 py-4 bg-gray-900 text-white flex items-center justify-between">
           <div className="font-bold text-lg">Indianode — Storage</div>
@@ -202,7 +408,7 @@ deployment:
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-2">
-                    {/* Akash deploy buttons — ALWAYS visible if SHOW_AKASH */}
+                    {/* Always show Akash deploy (locked SDL) */}
                     {SHOW_AKASH && (
                       <>
                         <button
@@ -265,24 +471,33 @@ deployment:
                         {busy && !ALLOW_PAY_WHEN_BUSY ? " • GPU busy" : ""}
                       </div>
                     )}
+
+                    {/* Preload add-on (ORDER_TOKEN) */}
+                    <button
+                      onClick={() => openPreload(p.size)}
+                      className="col-span-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl px-3 py-2"
+                      title="Paid dataset/model preload requiring ORDER_TOKEN"
+                    >
+                      Preload Add-on (ORDER_TOKEN)
+                    </button>
                   </div>
                 </div>
               ))}
             </div>
 
             <div className="mt-4 text-center text-xs text-gray-600">
-              Provider address: <code>{PROVIDER_ADDR}</code> • Data persists for the lease • No backups/SLA
+              Provider: <code>{PROVIDER_ADDR}</code> • Data persists for the lease • No backups/SLA
             </div>
           </div>
         </main>
 
         <footer className="px-6 py-3 text-center text-xs text-gray-500">
           © {new Date().getFullYear()} Indianode •{" "}
-          <a href="/" className="text-blue-600 hover:underline">
-            Home
-          </a>
+          <a href="/" className="text-blue-600 hover:underline">Home</a>
         </footer>
       </div>
+
+      <Modal />
     </>
   );
 }
