@@ -1,4 +1,3 @@
-// pages/index.js
 import { useState, useEffect, useMemo } from "react";
 import Script from "next/script";
 import Head from "next/head";
@@ -27,13 +26,29 @@ export default function Home() {
   const [wlMsg, setWlMsg] = useState("");
   const [msg, setMsg] = useState("");
 
+  // Post-payment modal (token + command)
+  const [postpay, setPostpay] = useState({
+    open: false,
+    token: "",
+    cmd: "",
+    product: "",
+    minutes: 0,
+    info: "",
+  });
+  const [redeemBusy, setRedeemBusy] = useState(false);
+  const [redeemMsg, setRedeemMsg] = useState("");
+
   // Toggle PayPal with env (0/1)
   const enablePayPal =
-    String((process.env.NEXT_PUBLIC_ENABLE_PAYPAL || "0")) === "1";
+    String(process.env.NEXT_PUBLIC_ENABLE_PAYPAL || "0") === "1";
 
-  // Show Akash hero chips (0/1)
+  // Show Akash deploy chips (0/1)
   const SHOW_AKASH =
-    String((process.env.NEXT_PUBLIC_SHOW_AKASH || "1")) === "1";
+    String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
+
+  // The public base for scripts; reuse your existing var
+  const DEPLOYER_BASE =
+    process.env.NEXT_PUBLIC_DEPLOYER_BASE || "https://your-backend.example.com";
 
   // FX (INR->USD)
   const [fx, setFx] = useState(0.012);
@@ -44,7 +59,6 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
-  // GPU status
   useEffect(() => {
     fetch("/api/status")
       .then((res) => res.json())
@@ -97,7 +111,7 @@ export default function Home() {
       }
       throw new Error(data?.error || "Order creation failed");
     }
-    return data;
+    return data; // { id, amount, currency }
   }
 
   async function payWithRazorpay({ product, displayName }) {
@@ -146,7 +160,7 @@ export default function Home() {
         },
         theme: { color: "#111827" },
 
-        // SUCCESS: verify on server and trigger deploy/queue
+        // SUCCESS: get an ORDER_TOKEN and show modal (plus allow "Start now")
         handler: async (response) => {
           try {
             // GA: purchase
@@ -168,8 +182,8 @@ export default function Home() {
               payment_method: "razorpay",
             });
 
-            // 2) Server verify + queue deploy
-            const confirmRes = await fetch("/api/razorpay/confirm", {
+            // Get an ORDER_TOKEN + prebuilt run command
+            const k = await fetch("/api/gpu/order-token", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -178,20 +192,33 @@ export default function Home() {
                 signature: response.razorpay_signature,
                 product,
                 minutes,
-                email: (email || "").trim(),
+                email: userEmail,
                 promo: promoCode,
               }),
             });
-            const j = await confirmRes.json();
-            if (!confirmRes.ok) throw new Error(j?.error || "confirm_failed");
+            const j = await k.json();
+            if (!k.ok) throw new Error(j?.error || "order_token_failed");
 
-            alert(j.message || "Payment verified. Deployment queued.");
-            // Optional: redirect if your deployer returns a URL
-            // if (j.url) window.location.href = j.url;
+            // Example command (run anywhere; it just redeems the token)
+            const cmd = `curl -fsSL ${DEPLOYER_BASE.replace(
+              /\/+$/g,
+              ""
+            )}/scripts/run-gpu.sh | ORDER_TOKEN='${j.token}' bash`;
+
+            setPostpay({
+              open: true,
+              token: j.token,
+              cmd,
+              product,
+              minutes: Number(minutes || 60),
+              info:
+                j.message ||
+                "Payment verified. You can start now or copy the command.",
+            });
           } catch (err) {
             alert(
               err.message ||
-                "We received your payment, but verification failed. We’ll fix this manually."
+                "We received your payment, but token minting failed. We’ll fix this manually."
             );
           }
         },
@@ -276,10 +303,34 @@ export default function Home() {
     }
   }
 
+  // Redeem token from modal (server starts/queues job; minutes enforced server-side)
+  async function redeemNow() {
+    try {
+      setRedeemBusy(true);
+      setRedeemMsg("");
+      const r = await fetch("/api/gpu/redeem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: postpay.token }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j?.error || "redeem_failed");
+      setRedeemMsg(j.message || "Deployment queued. Check your email for URL.");
+      if (j.url) {
+        // Optional: take them to a status page
+        // window.location.href = j.url;
+      }
+    } catch (e) {
+      setRedeemMsg(e.message || "Could not start now. Try the command instead.");
+    } finally {
+      setRedeemBusy(false);
+    }
+  }
+
   const busy = status !== "available";
   const disabled = loading;
 
-  // Map product to the right Akash info page (with locked SDLs)
+  // Map product to the right Akash info page
   const akashHrefFor = (key) => {
     switch (key) {
       case "whisper":
@@ -293,6 +344,22 @@ export default function Home() {
     }
   };
 
+  function copy(text) {
+    try {
+      navigator.clipboard.writeText(text);
+      alert("Copied!");
+    } catch {
+      // fallback
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      alert("Copied!");
+    }
+  }
+
   return (
     <>
       <Head>
@@ -305,10 +372,7 @@ export default function Home() {
 
         {/* Open Graph / Twitter */}
         <meta property="og:title" content="Indianode — GPU Hosting on RTX 3090" />
-        <meta
-          property="og:description"
-          content="GPU hosting for SDLS, Whisper, and LLM workloads on 24GB RTX 3090."
-        />
+        <meta property="og:description" content="GPU hosting for SDLS, Whisper, and LLM workloads on 24GB RTX 3090." />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://www.indianode.com/" />
         <meta name="twitter:card" content="summary_large_image" />
@@ -322,7 +386,7 @@ export default function Home() {
               "@type": "Organization",
               name: "Indianode",
               url: "https://www.indianode.com",
-              logo: "https://www.indianode.com/logo.png",
+              logo: "https://www.indianode.com/logo.png"
             }),
           }}
         />
@@ -337,8 +401,8 @@ export default function Home() {
               potentialAction: {
                 "@type": "SearchAction",
                 target: "https://www.indianode.com/?q={search_term_string}",
-                "query-input": "required name=search_term_string",
-              },
+                "query-input": "required name=search_term_string"
+              }
             }),
           }}
         />
@@ -357,11 +421,7 @@ export default function Home() {
           </h1>
           <p className="text-center mb-6 text-lg">
             Current GPU Status:{" "}
-            <span
-              className={`font-semibold ${
-                busy ? "text-amber-700" : "text-emerald-700"
-              }`}
-            >
+            <span className={`font-semibold ${busy ? "text-amber-700" : "text-emerald-700"}`}>
               {status}
             </span>
           </p>
@@ -370,42 +430,31 @@ export default function Home() {
           {SHOW_AKASH && (
             <div
               className={`max-w-4xl mx-auto mb-8 rounded-2xl px-5 py-4 text-center ${
-                busy
-                  ? "bg-amber-50 border border-amber-200"
-                  : "bg-emerald-50 border border-emerald-200"
+                busy ? "bg-amber-50 border border-amber-200" : "bg-emerald-50 border border-emerald-200"
               }`}
             >
               <p className="mb-3">
                 {busy ? (
                   <>
-                    <b>GPU busy.</b> You can still deploy now on Akash (your lease may
-                    queue), or pay below for Managed Deploy (we’ll auto-start & email
-                    your URL).
+                    <b>GPU busy.</b> You can deploy on Akash now (your lease may queue), or buy below and
+                    use the post-payment <b>ORDER_TOKEN</b> to start when the GPU frees up.
                   </>
                 ) : (
                   <>
-                    <b>GPU available.</b> Deploy now on Akash with our ready SDLs.
+                    <b>GPU available.</b> Deploy now on Akash with our ready SDLs, or buy below for
+                    managed minutes with an ORDER_TOKEN command.
                   </>
                 )}
               </p>
 
               <div className="flex flex-wrap items-center justify-center gap-3">
-                <Link
-                  href="/whisper-gpu"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl"
-                >
+                <Link href="/whisper-gpu" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
                   Whisper (SDL)
                 </Link>
-                <Link
-                  href="/sdls"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl"
-                >
+                <Link href="/sdls" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
                   Stable Diffusion (SDL)
                 </Link>
-                <Link
-                  href="/llm-hosting"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl"
-                >
+                <Link href="/llm-hosting" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
                   LLaMA (SDL)
                 </Link>
               </div>
@@ -451,9 +500,7 @@ export default function Home() {
                   min="1"
                   max="240"
                   value={minutes}
-                  onChange={(e) =>
-                    setMinutes(Math.max(1, Number(e.target.value || 1)))
-                  }
+                  onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
                   className="border rounded-lg px-3 py-2"
                   disabled={loading}
                 />
@@ -474,8 +521,7 @@ export default function Home() {
             {busy && (
               <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
                 <div className="text-sm text-amber-800 mb-3">
-                  GPU is busy. You can still pay now (we’ll queue it) or join the
-                  waitlist:
+                  GPU is busy. You can still pay now (we’ll queue it) or join the waitlist:
                 </div>
                 <div className="grid md:grid-cols-3 gap-3">
                   <label className="flex flex-col">
@@ -489,9 +535,7 @@ export default function Home() {
                     />
                   </label>
                   <label className="flex flex-col">
-                    <span className="text-xs font-semibold mb-1">
-                      Interested in
-                    </span>
+                    <span className="text-xs font-semibold mb-1">Interested in</span>
                     <select
                       value={interest}
                       onChange={(e) => setInterest(e.target.value)}
@@ -522,7 +566,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* Product cards (Pay only; SDL link is a small helper below each card) */}
+          {/* Product cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {templates.map((t) => {
               const inr = priceInrFor(t.key, minutes);
@@ -531,18 +575,13 @@ export default function Home() {
               const offUsd = promoActive ? priceUsdFromInr(PROMO_OFF_INR) : 0;
 
               return (
-                <div
-                  key={t.key}
-                  className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between"
-                >
+                <div key={t.key} className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between">
                   <div>
                     <h2 className="text-xl font-bold mb-2">{t.name}</h2>
                     <p className="text-gray-600 mb-3">{t.desc}</p>
 
                     <p className="text-gray-800">
-                      <span className="font-semibold">
-                        Price for {minutes} min:
-                      </span>{" "}
+                      <span className="font-semibold">Price for {minutes} min:</span>{" "}
                       ₹{inr} / ${usd.toFixed(2)}
                     </p>
 
@@ -552,21 +591,16 @@ export default function Home() {
                       </p>
                     )}
 
-                    <p className="text-xs text-gray-500 mt-1">
-                      (Base: ₹{price60[t.key]} for 60 min)
-                    </p>
+                    <p className="text-xs text-gray-500 mt-1">(Base: ₹{price60[t.key]} for 60 min)</p>
                   </div>
 
                   <div className="grid grid-cols-1 gap-2 mt-4">
+                    {/* Pay buttons */}
                     <button
                       className={`text-white px-4 py-2 rounded-xl ${
-                        disabled
-                          ? "bg-gray-400 cursor-not-allowed"
-                          : "bg-indigo-600 hover:bg-indigo-700"
+                        disabled ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
                       }`}
-                      onClick={() =>
-                        payWithRazorpay({ product: t.key, displayName: t.name })
-                      }
+                      onClick={() => payWithRazorpay({ product: t.key, displayName: t.name })}
                       disabled={disabled}
                     >
                       Pay ₹{inr} • Razorpay (INR)
@@ -575,13 +609,9 @@ export default function Home() {
                     {enablePayPal && (
                       <button
                         className={`text-white px-4 py-2 rounded-xl ${
-                          disabled
-                            ? "bg-gray-400 cursor-not-allowed"
-                            : "bg-slate-700 hover:bg-slate-800"
+                          disabled ? "bg-gray-400 cursor-not-allowed" : "bg-slate-700 hover:bg-slate-800"
                         }`}
-                        onClick={() =>
-                          payWithPayPal({ product: t.key, amountUsd: usd })
-                        }
+                        onClick={() => payWithPayPal({ product: t.key, amountUsd: usd })}
                         disabled={disabled}
                       >
                         Pay ${usd.toFixed(2)} • PayPal (USD)
@@ -589,11 +619,10 @@ export default function Home() {
                     )}
 
                     <p className="text-[11px] text-gray-500">
-                      Billed in INR via Razorpay. USD shown is an approximate
-                      amount based on today’s rate.
+                      Billed in INR via Razorpay. USD shown is an approximate amount based on today’s rate.
                     </p>
 
-                    {/* Small Akash link (so we don't duplicate big deploy buttons) */}
+                    {/* Small Akash link */}
                     {SHOW_AKASH && (
                       <Link
                         href={akashHrefFor(t.key)}
@@ -616,24 +645,16 @@ export default function Home() {
         </main>
 
         <section className="mt-16 border-t pt-10 pb-6 text-center text-sm text-gray-700">
-          <p className="mb-2">
-            💬 Looking for custom pricing, discounts, or reserved slots? Reach out:
-          </p>
+          <p className="mb-2">💬 Looking for custom pricing, discounts, or reserved slots? Reach out:</p>
           <p>
             Email:{" "}
-            <a
-              href="mailto:tvavinash@gmail.com"
-              className="text-blue-600 hover:underline"
-            >
+            <a href="mailto:tvavinash@gmail.com" className="text-blue-600 hover:underline">
               tvavinash@gmail.com
             </a>
           </p>
           <p>
             Phone:{" "}
-            <a
-              href="tel:+919902818004"
-              className="text-blue-600 hover:underline"
-            >
+            <a href="tel:+919902818004" className="text-blue-600 hover:underline">
               +919902818004
             </a>
           </p>
@@ -642,22 +663,85 @@ export default function Home() {
 
         <footer className="p-4 text-center text-sm text-gray-600">
           <nav className="mb-2 space-x-4">
-            <Link href="/whisper-gpu" className="text-blue-600 hover:underline">
-              Whisper
-            </Link>
-            <Link href="/sdls" className="text-blue-600 hover:underline">
-              SDLS
-            </Link>
-            <Link href="/llm-hosting" className="text-blue-600 hover:underline">
-              LLM
-            </Link>
-            <Link href="/storage" className="text-blue-600 hover:underline">
-              Storage
-            </Link>
+            <Link href="/whisper-gpu" className="text-blue-600 hover:underline">Whisper</Link>
+            <Link href="/sdls" className="text-blue-600 hover:underline">SDLS</Link>
+            <Link href="/llm-hosting" className="text-blue-600 hover:underline">LLM</Link>
+            <Link href="/storage" className="text-blue-600 hover:underline">Storage</Link>
           </nav>
           © {new Date().getFullYear()} Indianode
         </footer>
       </div>
+
+      {/* Post-payment modal */}
+      {postpay.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-lg p-6">
+            <div className="flex items-start justify-between">
+              <h3 className="text-lg font-bold">Payment verified — next steps</h3>
+              <button
+                className="text-gray-500 hover:text-gray-700"
+                onClick={() => setPostpay((s) => ({ ...s, open: false }))}
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="mt-2 text-sm text-gray-700">
+              {postpay.info || "Use either option below to begin your session."}
+            </p>
+
+            <div className="mt-4 grid md:grid-cols-2 gap-4">
+              <div className="rounded-xl border p-4">
+                <div className="text-sm font-semibold mb-2">Option A — Start now (1-click)</div>
+                <button
+                  onClick={redeemNow}
+                  disabled={redeemBusy}
+                  className={`w-full rounded-xl px-4 py-2 text-white ${
+                    redeemBusy ? "bg-gray-400" : "bg-emerald-600 hover:bg-emerald-700"
+                  }`}
+                >
+                  {redeemBusy ? "Starting..." : `Start ${postpay.product.toUpperCase()} • ${postpay.minutes} min`}
+                </button>
+                {redeemMsg && <div className="mt-2 text-xs text-gray-700">{redeemMsg}</div>}
+              </div>
+
+              <div className="rounded-xl border p-4">
+                <div className="text-sm font-semibold mb-2">Option B — Run from your terminal</div>
+                <p className="text-xs text-gray-600 mb-2">
+                  This command just redeems your <b>ORDER_TOKEN</b> with our backend and queues your job. You can run it
+                  from any machine; <b>do not</b> run on your Akash host VM.
+                </p>
+                <pre className="text-xs bg-gray-900 text-white rounded-lg p-3 overflow-x-auto">
+{postpay.cmd}
+                </pre>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    className="rounded-lg bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 text-sm"
+                    onClick={() => copy(postpay.cmd)}
+                  >
+                    Copy command
+                  </button>
+                  <button
+                    className="rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-2 text-sm"
+                    onClick={() => copy(postpay.token)}
+                    title="For support/debugging"
+                  >
+                    Copy token only
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <details className="mt-4 text-xs text-gray-600">
+              <summary className="cursor-pointer font-semibold">What about time limits?</summary>
+              <div className="mt-2">
+                Your token encodes the product and minutes you purchased. Our server enforces the duration (e.g. stops the
+                container when time is up). Extra usage requires another token.
+              </div>
+            </details>
+          </div>
+        </div>
+      )}
     </>
   );
 }
