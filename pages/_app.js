@@ -4,27 +4,42 @@ import Script from "next/script";
 import { useRouter } from "next/router";
 import { useEffect } from "react";
 
-// Falls back to your real ID so first deploy is guaranteed to work.
-// Later you can keep only the env var if you prefer.
-const GA_ID =
-  process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "G-YQFT6PHP65";
+// keep your env var; fallback to your real ID so it always works
+const GA_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "G-YQFT6PHP65";
+
+function sendPageview(path) {
+  if (typeof window !== "undefined" && window.gtag && GA_ID) {
+    window.gtag("event", "page_view", {
+      page_location: window.location.origin + path,
+      page_path: path,
+      page_title: document.title,
+    });
+  }
+}
 
 export default function App({ Component, pageProps }) {
   const router = useRouter();
 
   useEffect(() => {
-    const handleRouteChange = (url) => {
-      if (typeof window !== "undefined" && window.gtag && GA_ID) {
-        window.gtag("config", GA_ID, { page_path: url });
+    // Fire ONE page_view when gtag finishes loading
+    let tries = 0;
+    const timer = setInterval(() => {
+      if (window.gtag) {
+        sendPageview(window.location.pathname + window.location.search);
+        clearInterval(timer);
+      } else if (++tries > 40) {
+        clearInterval(timer); // give up after ~4s
       }
-    };
+    }, 100);
 
-    // fire once on initial load
-    handleRouteChange(window.location.pathname + window.location.search);
-
-    // then on client-side route changes
+    // Fire on SPA route changes
+    const handleRouteChange = (url) => sendPageview(url);
     router.events.on("routeChangeComplete", handleRouteChange);
-    return () => router.events.off("routeChangeComplete", handleRouteChange);
+
+    return () => {
+      router.events.off("routeChangeComplete", handleRouteChange);
+      clearInterval(timer);
+    };
   }, [router.events]);
 
   return (
@@ -37,7 +52,7 @@ export default function App({ Component, pageProps }) {
         window.dataLayer = window.dataLayer || [];
         function gtag(){dataLayer.push(arguments);}
         gtag('js', new Date());
-        // We'll send page_view manually (above) to avoid duplicates
+        // we'll send page_view manually (above)
         gtag('config', '${GA_ID}', { send_page_view: false });
       `}</Script>
 
