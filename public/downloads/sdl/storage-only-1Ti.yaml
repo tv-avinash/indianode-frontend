@@ -1,0 +1,25 @@
+version: "2.0"
+services:
+  storagebox:
+    image: busybox
+    command: ["sh","-c","sleep 3650d"]
+    resources:
+      cpu: { units: 0.25 }
+      memory: { size: 512Mi }
+      storage:
+        - name: data
+          size: 1Ti
+profiles:
+  compute:
+    storagebox: {}
+  placement:
+    anywhere:
+      pricing:
+        storagebox:
+          denom: uakt
+          amount: 400
+deployment:
+  storagebox:
+    anywhere:
+      profile: storagebox
+      count: 1

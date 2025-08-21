@@ -1,0 +1,29 @@
+version: "2.0"
+services:
+  app:
+    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
+    command: ["bash","-lc","sleep infinity"]
+    resources:
+      cpu: { units: 1 }
+      memory: { size: 4Gi }
+      storage:
+        - name: dataset
+          size: 500Gi
+      gpu:
+        units: 1
+        attributes:
+          vendor/nvidia/model/*: "true"
+profiles:
+  compute:
+    app: {}
+  placement:
+    anywhere:
+      pricing:
+        app:
+          denom: uakt
+          amount: 800
+deployment:
+  app:
+    anywhere:
+      profile: app
+      count: 1
