@@ -26,15 +26,13 @@ export default function Home() {
   const [wlMsg, setWlMsg] = useState("");
   const [msg, setMsg] = useState("");
 
-  // Toggles
+  // Toggle PayPal with env (0/1)
   const enablePayPal =
     String(process.env.NEXT_PUBLIC_ENABLE_PAYPAL || "0") === "1";
+
+  // Show Akash hero chips (0/1)
   const SHOW_AKASH =
     String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
-
-  // Provider lock (used by hero SDL downloads)
-  const ATTR_KEY = process.env.NEXT_PUBLIC_PROVIDER_ATTR_KEY || "org";
-  const ATTR_VAL = process.env.NEXT_PUBLIC_PROVIDER_ATTR_VAL || "indianode";
 
   // FX (INR->USD)
   const [fx, setFx] = useState(0.012);
@@ -83,7 +81,7 @@ export default function Home() {
     []
   );
 
-  // --- Payments (unchanged) ---
+  // --- Payments ---
   async function createRazorpayOrder({ product, minutes, userEmail }) {
     const r = await fetch("/api/order", {
       method: "POST",
@@ -251,7 +249,7 @@ export default function Home() {
   const busy = status !== "available";
   const disabled = loading;
 
-  // Map product to info page (kept for cards)
+  // Map product to the right Akash info page (with locked SDLs)
   const akashHrefFor = (key) => {
     switch (key) {
       case "whisper":
@@ -265,73 +263,6 @@ export default function Home() {
     }
   };
 
-  // --- NEW: hero buttons download provider-locked SDLs ---
-  function gpuSDL(kind) {
-    // conservative defaults per workload
-    const table = {
-      whisper: { cpu: 4, mem: "16Gi", price: 800, tag: "whisper" },
-      sd: { cpu: 6, mem: "24Gi", price: 900, tag: "stable-diffusion" },
-      llama: { cpu: 8, mem: "48Gi", price: 1100, tag: "llama" },
-    };
-    const cfg = table[kind] || table.sd;
-
-    return `version: "2.0"
-services:
-  app:
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","sleep infinity"]
-    env:
-      - WORKLOAD=${cfg.tag}
-    resources:
-      cpu: { units: ${cfg.cpu} }
-      memory: { size: ${cfg.mem} }
-      gpu:
-        units: 1
-        attributes:
-          vendor/nvidia/model/*: "true"
-profiles:
-  compute:
-    app: {}
-  placement:
-    indianode:
-      attributes:
-        ${ATTR_KEY}: "${ATTR_VAL}"
-      pricing:
-        app:
-          denom: uakt
-          amount: ${cfg.price}
-deployment:
-  app:
-    indianode:
-      profile: app
-      count: 1
-`;
-  }
-
-  function downloadText(filename, text) {
-    const blob = new Blob([text], { type: "text/yaml;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  function handleDownloadSDL(kind) {
-    const yaml = gpuSDL(kind);
-    downloadText(`indianode-${kind}.yaml`, yaml);
-    gaEvent("select_content", { item_id: `download_locked_sdl_${kind}` });
-  }
-
-  // Scroll helper to inputs/waitlist
-  const scrollToWaitlist = () => {
-    const el = document.getElementById("buyer-inputs");
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-
   return (
     <>
       <Head>
@@ -342,12 +273,9 @@ deployment:
         />
         <link rel="canonical" href="https://www.indianode.com/" />
 
-        {/* OG / Twitter */}
+        {/* Open Graph / Twitter */}
         <meta property="og:title" content="Indianode — GPU Hosting on RTX 3090" />
-        <meta
-          property="og:description"
-          content="GPU hosting for SDLS, Whisper, and LLM workloads on 24GB RTX 3090."
-        />
+        <meta property="og:description" content="GPU hosting for SDLS, Whisper, and LLM workloads on 24GB RTX 3090." />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://www.indianode.com/" />
         <meta name="twitter:card" content="summary_large_image" />
@@ -361,7 +289,7 @@ deployment:
               "@type": "Organization",
               name: "Indianode",
               url: "https://www.indianode.com",
-              logo: "https://www.indianode.com/logo.png",
+              logo: "https://www.indianode.com/logo.png"
             }),
           }}
         />
@@ -376,8 +304,8 @@ deployment:
               potentialAction: {
                 "@type": "SearchAction",
                 target: "https://www.indianode.com/?q={search_term_string}",
-                "query-input": "required name=search_term_string",
-              },
+                "query-input": "required name=search_term_string"
+              }
             }),
           }}
         />
@@ -391,7 +319,7 @@ deployment:
         </header>
 
         <main className="p-8 max-w-5xl mx-auto">
-          <h1 className="text-3xl font-bold mb-3 text-center">
+          <h1 className="text-3xl font-bold mb-2 text-center">
             3090 GPU on demand • India & International payments
           </h1>
           <p className="text-center mb-6 text-lg">
@@ -401,65 +329,41 @@ deployment:
             </span>
           </p>
 
-          {/* Status-aware hero */}
-          <div className="max-w-4xl mx-auto mb-8">
-            {busy ? (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-center">
-                <p className="mb-3 text-amber-900">
-                  <b>GPU busy.</b> You can still deploy on Akash to queue, join the waitlist, or
-                  use our fast same-host NVMe storage.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                  <button
-                    onClick={() => {
-                      scrollToWaitlist();
-                      gaEvent("select_content", { item_id: "waitlist_cta" });
-                    }}
-                    className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2"
-                  >
-                    Notify me when free
-                  </button>
-                  <Link
-                    href="/storage"
-                    className="rounded-xl bg-slate-800 hover:bg-slate-900 text-white px-4 py-2"
-                    onClick={() =>
-                      gaEvent("select_content", { item_id: "storage_cta_busy" })
-                    }
-                  >
-                    Explore Storage (200 Gi / 500 Gi / 1 TiB)
-                  </Link>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-5 py-4 text-center">
-                <p className="mb-3 text-emerald-900">
-                  <b>GPU available.</b> Deploy now on Akash with locked SDLs for Indianode.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                  <button
-                    onClick={() => handleDownloadSDL("whisper")}
-                    className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2"
-                  >
-                    Whisper (SDL)
-                  </button>
-                  <button
-                    onClick={() => handleDownloadSDL("sd")}
-                    className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2"
-                  >
-                    Stable Diffusion (SDL)
-                  </button>
-                  <button
-                    onClick={() => handleDownloadSDL("llama")}
-                    className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2"
-                  >
-                    LLaMA (SDL)
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+          {/* GPU banner with Akash SDL chips */}
+          {SHOW_AKASH && (
+            <div
+              className={`max-w-4xl mx-auto mb-8 rounded-2xl px-5 py-4 text-center ${
+                busy ? "bg-amber-50 border border-amber-200" : "bg-emerald-50 border border-emerald-200"
+              }`}
+            >
+              <p className="mb-3">
+                {busy ? (
+                  <>
+                    <b>GPU busy.</b> You can still deploy now on Akash (your lease will queue),
+                    or pay below for Managed Deploy (we’ll auto-start & email your URL).
+                  </>
+                ) : (
+                  <>
+                    <b>GPU available.</b> Deploy now on Akash with our ready SDLs.
+                  </>
+                )}
+              </p>
 
-          {/* Storage promo / CTA */}
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <Link href="/whisper-gpu" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
+                  Whisper (SDL)
+                </Link>
+                <Link href="/sdls" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
+                  Stable Diffusion (SDL)
+                </Link>
+                <Link href="/llm-hosting" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
+                  LLaMA (SDL)
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {/* Storage CTA */}
           <div className="max-w-3xl mx-auto mb-8">
             <div className="rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-center">
               <p className="mb-3 text-gray-800">
@@ -475,10 +379,12 @@ deployment:
           </div>
 
           {/* Buyer inputs */}
-          <div id="buyer-inputs" className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 mb-8">
+          <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 mb-8">
             <div className="grid md:grid-cols-3 gap-4">
               <label className="flex flex-col">
-                <span className="text-sm font-semibold mb-1">Your email (for receipts)</span>
+                <span className="text-sm font-semibold mb-1">
+                  Your email (for receipts)
+                </span>
                 <input
                   type="email"
                   value={email}
@@ -496,7 +402,9 @@ deployment:
                   min="1"
                   max="240"
                   value={minutes}
-                  onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
+                  onChange={(e) =>
+                    setMinutes(Math.max(1, Number(e.target.value || 1)))
+                  }
                   className="border rounded-lg px-3 py-2"
                   disabled={loading}
                 />
@@ -562,7 +470,7 @@ deployment:
             </div>
           )}
 
-          {/* Product cards */}
+          {/* Product cards (Pay only; SDL link is a small helper below each card) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {templates.map((t) => {
               const inr = priceInrFor(t.key, minutes);
@@ -580,8 +488,8 @@ deployment:
                     <p className="text-gray-600 mb-3">{t.desc}</p>
 
                     <p className="text-gray-800">
-                      <span className="font-semibold">Price for {minutes} min:</span> ₹{inr} / $
-                      {usd.toFixed(2)}
+                      <span className="font-semibold">Price for {minutes} min:</span>{" "}
+                      ₹{inr} / ${usd.toFixed(2)}
                     </p>
 
                     {promoActive && (
@@ -596,26 +504,11 @@ deployment:
                   </div>
 
                   <div className="grid grid-cols-1 gap-2 mt-4">
-                    {/* Optional: info pages remain for deeper docs */}
-                    {SHOW_AKASH && (
-                      <Link
-                        href={akashHrefFor(t.key)}
-                        onClick={() =>
-                          gaEvent("select_content", {
-                            content_type: "button",
-                            item_id: `deploy_akash_${t.key}`,
-                          })
-                        }
-                        className="text-center bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl"
-                      >
-                        Deploy on Akash (SDL)
-                      </Link>
-                    )}
-
-                    {/* Pay buttons (unchanged) */}
                     <button
                       className={`text-white px-4 py-2 rounded-xl ${
-                        disabled ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
+                        disabled
+                          ? "bg-gray-400 cursor-not-allowed"
+                          : "bg-indigo-600 hover:bg-indigo-700"
                       }`}
                       onClick={() =>
                         payWithRazorpay({ product: t.key, displayName: t.name })
@@ -628,19 +521,38 @@ deployment:
                     {enablePayPal && (
                       <button
                         className={`text-white px-4 py-2 rounded-xl ${
-                          disabled ? "bg-gray-400 cursor-not-allowed" : "bg-slate-700 hover:bg-slate-800"
+                          disabled
+                            ? "bg-gray-400 cursor-not-allowed"
+                            : "bg-slate-700 hover:bg-slate-800"
                         }`}
-                        onClick={() => payWithPayPal({ product: t.key, amountUsd: usd })}
+                        onClick={() =>
+                          payWithPayPal({ product: t.key, amountUsd: usd })
+                        }
                         disabled={disabled}
                       >
                         Pay ${usd.toFixed(2)} • PayPal (USD)
                       </button>
                     )}
 
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Billed in INR via Razorpay. USD shown is an approximate amount based on
-                      today’s rate.
+                    <p className="text-[11px] text-gray-500">
+                      Billed in INR via Razorpay. USD shown is an approximate amount based on today’s rate.
                     </p>
+
+                    {/* Small Akash link (so we don't duplicate big deploy buttons) */}
+                    {SHOW_AKASH && (
+                      <Link
+                        href={akashHrefFor(t.key)}
+                        className="text-[11px] text-emerald-700 hover:underline mt-1 justify-self-start"
+                        onClick={() =>
+                          gaEvent("select_content", {
+                            content_type: "link",
+                            item_id: `akash_sdl_link_${t.key}`,
+                          })
+                        }
+                      >
+                        Prefer Akash? Get SDL
+                      </Link>
+                    )}
                   </div>
                 </div>
               );
@@ -649,7 +561,9 @@ deployment:
         </main>
 
         <section className="mt-16 border-t pt-10 pb-6 text-center text-sm text-gray-700">
-          <p className="mb-2">💬 Looking for custom pricing, discounts, or rate concessions? Reach out:</p>
+          <p className="mb-2">
+            💬 Looking for custom pricing, discounts, or reserved slots? Reach out:
+          </p>
           <p>
             Email:{" "}
             <a href="mailto:tvavinash@gmail.com" className="text-blue-600 hover:underline">
