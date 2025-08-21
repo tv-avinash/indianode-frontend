@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Head from "next/head";
 
-// Safe GA helper (same idea as index.js)
 const gaEvent = (name, params = {}) => {
   try {
     if (typeof window !== "undefined" && window.gtag) {
@@ -13,9 +12,8 @@ const gaEvent = (name, params = {}) => {
 export default function StoragePage() {
   // ----------------- state -----------------
   const [status, setStatus] = useState("checking...");
-  const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
-  const [size, setSize] = useState("200Gi"); // for waitlist
+  const [size, setSize] = useState("200Gi"); // waitlist
   const [wlMsg, setWlMsg] = useState("");
 
   // Prices (INR)
@@ -24,10 +22,10 @@ export default function StoragePage() {
     []
   );
 
-  // FX rate (for USD display) — try /api/fx, else env, else default
+  // FX rate (USD per INR) — try /api/fx, else env, else default
   const [fx, setFx] = useState(
     Number(process.env.NEXT_PUBLIC_USD_INR ? 1 / Number(process.env.NEXT_PUBLIC_USD_INR) : 0.0116)
-  ); // USD per INR
+  );
   useEffect(() => {
     fetch("/api/fx")
       .then((r) => r.json())
@@ -46,11 +44,11 @@ export default function StoragePage() {
       .then((j) => setStatus(j?.status || "offline"))
       .catch(() => setStatus("offline"));
   }, []);
-
-  // Sales switch (env)
-  const SALES_OPEN =
-    String(process.env.NEXT_PUBLIC_SALES_OPEN || "1") !== "0";
   const busy = status !== "available";
+
+  // Toggles
+  const SALES_OPEN = String(process.env.NEXT_PUBLIC_SALES_OPEN || "1") !== "0";
+  const SHOW_AKASH = String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
   const canSell = SALES_OPEN && !busy;
 
   // Preload script URL: backend if provided, else static
@@ -108,6 +106,7 @@ export default function StoragePage() {
       desc: "Great for checkpoints & HF snapshots",
       price: PRICE.g200,
       href: LINKS.g200,
+      sdl: "/downloads/sdl/app-200Gi.yaml",
     },
     {
       key: "g500",
@@ -115,6 +114,7 @@ export default function StoragePage() {
       desc: "Roomy training & fine-tuning cache",
       price: PRICE.g500,
       href: LINKS.g500,
+      sdl: "/downloads/sdl/app-500Gi.yaml",
     },
     {
       key: "g1tb",
@@ -122,10 +122,11 @@ export default function StoragePage() {
       desc: "Big datasets & multi-model workflows",
       price: PRICE.g1tb,
       href: LINKS.g1tb,
+      sdl: "/downloads/sdl/app-1Ti.yaml",
     },
   ];
 
-  const handleBuyClick = (planKey, inr) => {
+  const handlePayClick = (planKey, inr) => {
     gaEvent("begin_checkout", {
       value: inr,
       currency: "INR",
@@ -154,13 +155,12 @@ export default function StoragePage() {
           {/* capacity/status banner */}
           {!SALES_OPEN && (
             <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-900">
-              <b>At capacity:</b> Our GPU is currently leased. Buy buttons are
-              disabled. Join the waitlist below.
+              <b>At capacity:</b> Our GPU is currently leased. Card/UPI buttons are disabled. You can still deploy via Akash SDL.
             </div>
           )}
           {SALES_OPEN && busy && (
             <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-900">
-              <b>GPU busy:</b> Please join the waitlist and we’ll notify you as soon as it’s free.
+              <b>GPU busy:</b> Please deploy via Akash and/or join the waitlist below; we’ll notify you as soon as it’s free.
             </div>
           )}
 
@@ -198,32 +198,45 @@ export default function StoragePage() {
                     </div>
                   </div>
 
-                  <div className="mt-4">
+                  <div className="mt-4 flex flex-col sm:flex-row gap-2">
+                    {SHOW_AKASH && (
+                      <a
+                        href={p.sdl}
+                        className="flex-1 text-center bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl"
+                      >
+                        Deploy on Akash (SDL)
+                      </a>
+                    )}
+
                     {canSell ? (
                       p.href ? (
                         <a
                           href={p.href}
                           target="_blank"
                           rel="noreferrer"
-                          onClick={() => handleBuyClick(p.key, p.price)}
-                          className="block text-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl"
+                          onClick={() => handlePayClick(p.key, p.price)}
+                          className="flex-1 text-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl"
                         >
-                          Buy now
+                          Pay with Card/UPI
                         </a>
                       ) : (
                         <button
                           disabled
-                          className="w-full bg-gray-300 text-gray-700 px-4 py-2 rounded-xl cursor-not-allowed"
+                          className="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-xl cursor-not-allowed"
                         >
                           Set link in Vercel
                         </button>
                       )
                     ) : (
-                      <div className="text-sm text-gray-600">
-                        Not available right now.
+                      <div className="flex-1 text-sm text-gray-600 text-center">
+                        Card/UPI not available right now
                       </div>
                     )}
                   </div>
+
+                  <p className="text-xs text-gray-500 mt-2">
+                    <b>Tip:</b> Deploy first, then pay once your lease lands on our node.
+                  </p>
                 </div>
               ))}
             </div>
@@ -256,10 +269,15 @@ export default function StoragePage() {
                       href={LINKS.preload}
                       target="_blank"
                       rel="noreferrer"
-                      onClick={() => handleBuyClick("preload", PRICE.preload)}
+                      onClick={() => gaEvent("begin_checkout", {
+                        value: PRICE.preload,
+                        currency: "INR",
+                        items: [{ item_id: "preload", item_name: "preload", item_category: "storage", quantity: 1, price: PRICE.preload }],
+                        payment_method: "razorpay_link",
+                      })}
                       className="block text-center bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl"
                     >
-                      Buy preload
+                      Pay for Preload
                     </a>
                   ) : (
                     <button
@@ -270,7 +288,7 @@ export default function StoragePage() {
                     </button>
                   )
                 ) : (
-                  <div className="text-sm text-gray-600">Not available right now.</div>
+                  <div className="text-sm text-gray-600">Card/UPI not available right now</div>
                 )}
               </div>
             </div>
@@ -322,10 +340,10 @@ export default function StoragePage() {
             <h2 className="text-2xl font-semibold mb-2">How it works</h2>
             <ol className="list-decimal pl-6 text-gray-800">
               <li>
-                <b>Deploy on Indianode</b> using an SDL that requests 200 Gi / 500 Gi / 1 TiB.
+                <b>Deploy on Akash</b> using an SDL that requests 200 Gi / 500 Gi / 1 TiB.
               </li>
               <li>
-                <b>Pay</b> using the button for your size (cards / UPI supported).
+                <b>Pay (optional)</b> with Card/UPI for the matching size (or keep it Akash-only if you prefer).
               </li>
               <li>
                 <b>Preload (optional)</b> — open a shell in your container and run the one-liner.
@@ -333,7 +351,7 @@ export default function StoragePage() {
             </ol>
           </section>
 
-          {/* Waitlist section (shown when cannot sell) */}
+          {/* Waitlist section (when Card/UPI not available or busy) */}
           {!canSell && (
             <section className="mt-10 bg-white rounded-2xl shadow p-6">
               <h3 className="text-lg font-semibold mb-2">Join the waitlist</h3>
