@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Script from "next/script";
 import Head from "next/head";
+import Link from "next/link";
 
 export default function Home() {
   const [status, setStatus] = useState("checking...");
@@ -306,7 +307,7 @@ export default function Home() {
                       <option value="llama">LLaMA Inference</option>
                     </select>
                   </label>
-                  <div className="flex items	end">
+                  <div className="flex items-end">
                     <button
                       onClick={joinWaitlist}
                       className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl"
@@ -429,6 +430,11 @@ export default function Home() {
         </section>
 
         <footer className="p-4 text-center text-sm text-gray-600">
+          <nav className="mb-2 space-x-4">
+            <Link href="/whisper-gpu" className="text-blue-600 hover:underline">Whisper</Link>
+            <Link href="/sdls" className="text-blue-600 hover:underline">SDLS</Link>
+            <Link href="/llm-hosting" className="text-blue-600 hover:underline">LLM</Link>
+          </nav>
           © 2025 Indianode
         </footer>
       </div>
