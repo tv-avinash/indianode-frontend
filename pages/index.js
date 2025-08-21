@@ -106,16 +106,18 @@ export default function Home() {
       const order = await createRazorpayOrder({ product, minutes, userEmail });
 
       // GA: user started checkout (Razorpay)
+      const valueInr = Number(((order.amount || 0) / 100).toFixed(2));
       gaEvent("begin_checkout", {
-        value: (order.amount || 0) / 100,
+        value: valueInr,
         currency: order.currency || "INR",
+        coupon: promoCode || undefined,
         items: [
           {
             item_id: product,
             item_name: displayName,
             item_category: "gpu",
             quantity: 1,
-            price: (order.amount || 0) / 100,
+            price: valueInr,
           },
         ],
         minutes: Number(minutes),
@@ -143,19 +145,19 @@ export default function Home() {
           // GA: successful purchase (Razorpay)
           gaEvent("purchase", {
             transaction_id: response.razorpay_payment_id,
-            value: (order.amount || 0) / 100,
+            value: valueInr,
             currency: order.currency || "INR",
+            coupon: promoCode || undefined,
             items: [
               {
                 item_id: product,
                 item_name: displayName,
                 item_category: "gpu",
                 quantity: 1,
-                price: (order.amount || 0) / 100,
+                price: valueInr,
               },
             ],
             minutes: Number(minutes),
-            promo_code: promoCode || undefined,
             payment_method: "razorpay",
           });
         },
@@ -185,22 +187,25 @@ export default function Home() {
       if (!r.ok) throw new Error(j?.error || "paypal_create_failed");
 
       // GA: user started checkout (PayPal)
+      const valueUsd = Number(Number(amountUsd || 0).toFixed(2));
       gaEvent("begin_checkout", {
-        value: Number(amountUsd),
+        value: valueUsd,
         currency: "USD",
+        coupon: promoCode || undefined,
         items: [
           {
             item_id: product,
             item_name: product,
             item_category: "gpu",
             quantity: 1,
-            price: Number(amountUsd),
+            price: valueUsd,
           },
         ],
         minutes: Number(minutes),
         payment_method: "paypal",
       });
 
+      // NOTE: send 'purchase' on your PayPal success/return page after capture.
       window.location.href = j.approveUrl;
     } catch (e) {
       alert(e.message || "PayPal error");
@@ -230,6 +235,7 @@ export default function Home() {
         method: "waitlist",
         product: interest,
         minutes: Number(minutes),
+        coupon: promoCode || undefined,
       });
     } catch {
       setWlMsg("Could not join waitlist. Please try again.");
