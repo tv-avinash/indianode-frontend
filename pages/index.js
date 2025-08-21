@@ -1,3 +1,4 @@
+// pages/index.js
 import { useState, useEffect, useMemo } from "react";
 import Script from "next/script";
 import Head from "next/head";
@@ -28,11 +29,11 @@ export default function Home() {
 
   // Toggle PayPal with env (0/1)
   const enablePayPal =
-    String(process.env.NEXT_PUBLIC_ENABLE_PAYPAL || "0") === "1";
+    String((process.env.NEXT_PUBLIC_ENABLE_PAYPAL || "0")) === "1";
 
   // Show Akash hero chips (0/1)
   const SHOW_AKASH =
-    String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
+    String((process.env.NEXT_PUBLIC_SHOW_AKASH || "1")) === "1";
 
   // FX (INR->USD)
   const [fx, setFx] = useState(0.012);
@@ -43,6 +44,7 @@ export default function Home() {
       .catch(() => {});
   }, []);
 
+  // GPU status
   useEffect(() => {
     fetch("/api/status")
       .then((res) => res.json())
@@ -143,27 +145,55 @@ export default function Home() {
           promo: promoCode,
         },
         theme: { color: "#111827" },
-        handler: function (response) {
-          alert("Payment success: " + response.razorpay_payment_id);
 
-          // GA: successful purchase (Razorpay)
-          gaEvent("purchase", {
-            transaction_id: response.razorpay_payment_id,
-            value: valueInr,
-            currency: order.currency || "INR",
-            coupon: promoCode || undefined,
-            items: [
-              {
-                item_id: product,
-                item_name: displayName,
-                item_category: "gpu",
-                quantity: 1,
-                price: valueInr,
-              },
-            ],
-            minutes: Number(minutes),
-            payment_method: "razorpay",
-          });
+        // SUCCESS: verify on server and trigger deploy/queue
+        handler: async (response) => {
+          try {
+            // GA: purchase
+            gaEvent("purchase", {
+              transaction_id: response.razorpay_payment_id,
+              value: valueInr,
+              currency: order.currency || "INR",
+              coupon: promoCode || undefined,
+              items: [
+                {
+                  item_id: product,
+                  item_name: displayName,
+                  item_category: "gpu",
+                  quantity: 1,
+                  price: valueInr,
+                },
+              ],
+              minutes: Number(minutes),
+              payment_method: "razorpay",
+            });
+
+            // 2) Server verify + queue deploy
+            const confirmRes = await fetch("/api/razorpay/confirm", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                orderId: order.id,
+                paymentId: response.razorpay_payment_id,
+                signature: response.razorpay_signature,
+                product,
+                minutes,
+                email: (email || "").trim(),
+                promo: promoCode,
+              }),
+            });
+            const j = await confirmRes.json();
+            if (!confirmRes.ok) throw new Error(j?.error || "confirm_failed");
+
+            alert(j.message || "Payment verified. Deployment queued.");
+            // Optional: redirect if your deployer returns a URL
+            // if (j.url) window.location.href = j.url;
+          } catch (err) {
+            alert(
+              err.message ||
+                "We received your payment, but verification failed. We’ll fix this manually."
+            );
+          }
         },
       };
 
@@ -275,7 +305,10 @@ export default function Home() {
 
         {/* Open Graph / Twitter */}
         <meta property="og:title" content="Indianode — GPU Hosting on RTX 3090" />
-        <meta property="og:description" content="GPU hosting for SDLS, Whisper, and LLM workloads on 24GB RTX 3090." />
+        <meta
+          property="og:description"
+          content="GPU hosting for SDLS, Whisper, and LLM workloads on 24GB RTX 3090."
+        />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://www.indianode.com/" />
         <meta name="twitter:card" content="summary_large_image" />
@@ -289,7 +322,7 @@ export default function Home() {
               "@type": "Organization",
               name: "Indianode",
               url: "https://www.indianode.com",
-              logo: "https://www.indianode.com/logo.png"
+              logo: "https://www.indianode.com/logo.png",
             }),
           }}
         />
@@ -304,8 +337,8 @@ export default function Home() {
               potentialAction: {
                 "@type": "SearchAction",
                 target: "https://www.indianode.com/?q={search_term_string}",
-                "query-input": "required name=search_term_string"
-              }
+                "query-input": "required name=search_term_string",
+              },
             }),
           }}
         />
@@ -324,7 +357,11 @@ export default function Home() {
           </h1>
           <p className="text-center mb-6 text-lg">
             Current GPU Status:{" "}
-            <span className={`font-semibold ${busy ? "text-amber-700" : "text-emerald-700"}`}>
+            <span
+              className={`font-semibold ${
+                busy ? "text-amber-700" : "text-emerald-700"
+              }`}
+            >
               {status}
             </span>
           </p>
@@ -333,14 +370,17 @@ export default function Home() {
           {SHOW_AKASH && (
             <div
               className={`max-w-4xl mx-auto mb-8 rounded-2xl px-5 py-4 text-center ${
-                busy ? "bg-amber-50 border border-amber-200" : "bg-emerald-50 border border-emerald-200"
+                busy
+                  ? "bg-amber-50 border border-amber-200"
+                  : "bg-emerald-50 border border-emerald-200"
               }`}
             >
               <p className="mb-3">
                 {busy ? (
                   <>
-                    <b>GPU busy.</b> You can still deploy now on Akash (your lease will queue),
-                    or pay below for Managed Deploy (we’ll auto-start & email your URL).
+                    <b>GPU busy.</b> You can still deploy now on Akash (your lease may
+                    queue), or pay below for Managed Deploy (we’ll auto-start & email
+                    your URL).
                   </>
                 ) : (
                   <>
@@ -350,13 +390,22 @@ export default function Home() {
               </p>
 
               <div className="flex flex-wrap items-center justify-center gap-3">
-                <Link href="/whisper-gpu" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
+                <Link
+                  href="/whisper-gpu"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl"
+                >
                   Whisper (SDL)
                 </Link>
-                <Link href="/sdls" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
+                <Link
+                  href="/sdls"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl"
+                >
                   Stable Diffusion (SDL)
                 </Link>
-                <Link href="/llm-hosting" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
+                <Link
+                  href="/llm-hosting"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl"
+                >
                   LLaMA (SDL)
                 </Link>
               </div>
@@ -425,7 +474,8 @@ export default function Home() {
             {busy && (
               <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
                 <div className="text-sm text-amber-800 mb-3">
-                  GPU is busy. You can still pay now (we’ll queue it) or join the waitlist:
+                  GPU is busy. You can still pay now (we’ll queue it) or join the
+                  waitlist:
                 </div>
                 <div className="grid md:grid-cols-3 gap-3">
                   <label className="flex flex-col">
@@ -439,7 +489,9 @@ export default function Home() {
                     />
                   </label>
                   <label className="flex flex-col">
-                    <span className="text-xs font-semibold mb-1">Interested in</span>
+                    <span className="text-xs font-semibold mb-1">
+                      Interested in
+                    </span>
                     <select
                       value={interest}
                       onChange={(e) => setInterest(e.target.value)}
@@ -488,7 +540,9 @@ export default function Home() {
                     <p className="text-gray-600 mb-3">{t.desc}</p>
 
                     <p className="text-gray-800">
-                      <span className="font-semibold">Price for {minutes} min:</span>{" "}
+                      <span className="font-semibold">
+                        Price for {minutes} min:
+                      </span>{" "}
                       ₹{inr} / ${usd.toFixed(2)}
                     </p>
 
@@ -535,7 +589,8 @@ export default function Home() {
                     )}
 
                     <p className="text-[11px] text-gray-500">
-                      Billed in INR via Razorpay. USD shown is an approximate amount based on today’s rate.
+                      Billed in INR via Razorpay. USD shown is an approximate
+                      amount based on today’s rate.
                     </p>
 
                     {/* Small Akash link (so we don't duplicate big deploy buttons) */}
@@ -566,13 +621,19 @@ export default function Home() {
           </p>
           <p>
             Email:{" "}
-            <a href="mailto:tvavinash@gmail.com" className="text-blue-600 hover:underline">
+            <a
+              href="mailto:tvavinash@gmail.com"
+              className="text-blue-600 hover:underline"
+            >
               tvavinash@gmail.com
             </a>
           </p>
           <p>
             Phone:{" "}
-            <a href="tel:+919902818004" className="text-blue-600 hover:underline">
+            <a
+              href="tel:+919902818004"
+              className="text-blue-600 hover:underline"
+            >
               +919902818004
             </a>
           </p>
