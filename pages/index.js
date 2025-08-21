@@ -3,6 +3,15 @@ import Script from "next/script";
 import Head from "next/head";
 import Link from "next/link";
 
+// GA helper: safe no-op if gtag isn't ready
+const gaEvent = (name, params = {}) => {
+  try {
+    if (typeof window !== "undefined" && window.gtag) {
+      window.gtag("event", name, params);
+    }
+  } catch {}
+};
+
 export default function Home() {
   const [status, setStatus] = useState("checking...");
   const [loading, setLoading] = useState(false);
@@ -96,6 +105,23 @@ export default function Home() {
 
       const order = await createRazorpayOrder({ product, minutes, userEmail });
 
+      // GA: user started checkout (Razorpay)
+      gaEvent("begin_checkout", {
+        value: (order.amount || 0) / 100,
+        currency: order.currency || "INR",
+        items: [
+          {
+            item_id: product,
+            item_name: displayName,
+            item_category: "gpu",
+            quantity: 1,
+            price: (order.amount || 0) / 100,
+          },
+        ],
+        minutes: Number(minutes),
+        payment_method: "razorpay",
+      });
+
       const options = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_xxxxxx",
         amount: order.amount,
@@ -113,6 +139,25 @@ export default function Home() {
         theme: { color: "#111827" },
         handler: function (response) {
           alert("Payment success: " + response.razorpay_payment_id);
+
+          // GA: successful purchase (Razorpay)
+          gaEvent("purchase", {
+            transaction_id: response.razorpay_payment_id,
+            value: (order.amount || 0) / 100,
+            currency: order.currency || "INR",
+            items: [
+              {
+                item_id: product,
+                item_name: displayName,
+                item_category: "gpu",
+                quantity: 1,
+                price: (order.amount || 0) / 100,
+              },
+            ],
+            minutes: Number(minutes),
+            promo_code: promoCode || undefined,
+            payment_method: "razorpay",
+          });
         },
       };
 
@@ -138,6 +183,24 @@ export default function Home() {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || "paypal_create_failed");
+
+      // GA: user started checkout (PayPal)
+      gaEvent("begin_checkout", {
+        value: Number(amountUsd),
+        currency: "USD",
+        items: [
+          {
+            item_id: product,
+            item_name: product,
+            item_category: "gpu",
+            quantity: 1,
+            price: Number(amountUsd),
+          },
+        ],
+        minutes: Number(minutes),
+        payment_method: "paypal",
+      });
+
       window.location.href = j.approveUrl;
     } catch (e) {
       alert(e.message || "PayPal error");
@@ -161,6 +224,13 @@ export default function Home() {
       });
       if (!r.ok) throw new Error("waitlist_failed");
       setWlMsg("Thanks! We’ll email you as soon as the GPU is free.");
+
+      // GA: lead captured via waitlist
+      gaEvent("generate_lead", {
+        method: "waitlist",
+        product: interest,
+        minutes: Number(minutes),
+      });
     } catch {
       setWlMsg("Could not join waitlist. Please try again.");
     }
