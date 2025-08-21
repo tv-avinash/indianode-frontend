@@ -22,7 +22,7 @@ export default function StoragePage() {
   const PROVIDER_ADDR =
     process.env.NEXT_PUBLIC_PROVIDER_ADDR || "akash1YOURADDRESSHERE";
 
-  // Razorpay Payment Links (Card/UPI)
+  // Razorpay Payment Links (Card/UPI) for storage subscription (per plan)
   const cleanRzp = (u) =>
     (u || "")
       .trim()
@@ -31,7 +31,13 @@ export default function StoragePage() {
     g200: cleanRzp(process.env.NEXT_PUBLIC_RZP_200_MULTI || ""),
     g500: cleanRzp(process.env.NEXT_PUBLIC_RZP_500_MULTI || ""),
     g1tb: cleanRzp(process.env.NEXT_PUBLIC_RZP_1TB_MULTI || ""),
-    preload: cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_MULTI || ""),
+  };
+
+  // Razorpay Payment Links for PRELOAD add-on (per plan)
+  const LINKS_PRELOAD = {
+    "200Gi": cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_200 || ""),
+    "500Gi": cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_500 || ""),
+    "1TiB": cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_1TB || ""),
   };
 
   // ---------- runtime ----------
@@ -60,7 +66,16 @@ export default function StoragePage() {
     () => ({ g200: 399, g500: 799, g1tb: 1499 }),
     []
   );
-  const PRICE_PRELOAD = Number(process.env.NEXT_PUBLIC_PRELOAD_PRICE_INR || 499);
+
+  // ---- Preload price per plan (shown in modal) ----
+  const PRELOAD_PRICE = useMemo(
+    () => ({
+      "200Gi": Number(process.env.NEXT_PUBLIC_PRELOAD_200_INR || 499),
+      "500Gi": Number(process.env.NEXT_PUBLIC_PRELOAD_500_INR || 799),
+      "1TiB": Number(process.env.NEXT_PUBLIC_PRELOAD_1TB_INR || 1199),
+    }),
+    []
+  );
 
   const toUSD = (inr) =>
     Math.round(((inr || 0) * fx + Number.EPSILON) * 100) / 100;
@@ -165,7 +180,7 @@ deployment:
   const [modalOpen, setModalOpen] = useState(false);
   const [modalPlan, setModalPlan] = useState("200Gi");
   const [email, setEmail] = useState("");
-  const [ref, setRef] = useState(""); // Razorpay payment_id or your reference
+  const [ref, setRef] = useState(""); // Razorpay payment_id (pay_...)
   const [token, setToken] = useState("");
   const [tokenMsg, setTokenMsg] = useState("");
   const [loadingToken, setLoadingToken] = useState(false);
@@ -182,7 +197,11 @@ deployment:
     setTokenMsg("");
     const userEmail = (email || "").trim();
     if (!userEmail || !ref) {
-      setTokenMsg("Enter your email and payment reference.");
+      setTokenMsg("Enter your email and Razorpay payment id (starts with pay_).");
+      return;
+    }
+    if (!/^pay_[a-zA-Z0-9]+$/.test(ref)) {
+      setTokenMsg("Invalid payment id. Use the Razorpay payment id that starts with pay_.");
       return;
     }
     setLoadingToken(true);
@@ -192,7 +211,7 @@ deployment:
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: userEmail, plan: modalPlan, ref }),
       });
-      const text = await r.text();        // robust parse to avoid “Unexpected end of JSON input”
+      const text = await r.text();
       let j;
       try { j = JSON.parse(text); } catch { j = { error: text || "invalid_response" }; }
       if (!r.ok || !j?.token) throw new Error(j?.error || "token_failed");
@@ -201,7 +220,7 @@ deployment:
       setTokenMsg("Token issued. Use the command below inside your container.");
       gaEvent("generate_lead", { method: "order_token", plan: modalPlan });
     } catch (e) {
-      setTokenMsg(e.message || "Server error creating token");
+      setTokenMsg(String(e.message || "Server error creating token"));
     } finally {
       setLoadingToken(false);
     }
@@ -241,21 +260,31 @@ deployment:
 
           <div className="text-sm text-gray-700">
             <p className="mb-2">
-              Price: <b>₹{PRICE_PRELOAD}</b> (~${toUSD(PRICE_PRELOAD)})
+              Plan: <b>{modalPlan}</b> • Price:{" "}
+              <b>₹{PRELOAD_PRICE[modalPlan]}</b> (~${toUSD(PRELOAD_PRICE[modalPlan])})
             </p>
             <ol className="list-decimal pl-5 space-y-1">
               <li>
-                <b>Pay</b> for Preload {LINKS.preload ? (
+                <b>Pay</b> for Preload{" "}
+                {LINKS_PRELOAD[modalPlan] ? (
                   <a
-                    href={LINKS.preload}
+                    href={LINKS_PRELOAD[modalPlan]}
                     target="_blank"
                     rel="noreferrer"
                     className="text-blue-600 hover:underline"
                     onClick={() =>
                       gaEvent("begin_checkout", {
-                        value: PRICE_PRELOAD,
+                        value: PRELOAD_PRICE[modalPlan],
                         currency: "INR",
-                        items: [{ item_id: "preload", item_name: "preload", item_category: "storage", quantity: 1, price: PRICE_PRELOAD }],
+                        items: [
+                          {
+                            item_id: `preload_${modalPlan}`,
+                            item_name: `preload_${modalPlan}`,
+                            item_category: "storage",
+                            quantity: 1,
+                            price: PRELOAD_PRICE[modalPlan],
+                          },
+                        ],
                         payment_method: "razorpay_link",
                       })
                     }
@@ -264,10 +293,11 @@ deployment:
                   </a>
                 ) : (
                   <span className="text-red-600">(set link in Vercel)</span>
-                )}.
+                )}
+                .
               </li>
               <li>
-                Enter your <b>email</b> and <b>payment ref</b> below to get your <b>ORDER_TOKEN</b>.
+                Enter your <b>email</b> and Razorpay <b>payment id</b> (starts with <code>pay_</code>) to get your <b>ORDER_TOKEN</b>.
               </li>
               <li>
                 Inside your container, run the command with <b>ORDER_TOKEN</b> to preload datasets/models into <code>/data</code>.
@@ -298,11 +328,11 @@ deployment:
               />
             </label>
             <label className="flex flex-col">
-              <span className="text-xs font-semibold mb-1">Payment ref</span>
+              <span className="text-xs font-semibold mb-1">Razorpay payment id</span>
               <input
                 value={ref}
                 onChange={(e) => setRef(e.target.value)}
-                placeholder="razorpay_payment_id"
+                placeholder="pay_XXXXXXXXXXXXXXXX"
                 className="border rounded-lg px-3 py-2"
               />
             </label>
@@ -316,7 +346,7 @@ deployment:
                 loadingToken ? "bg-gray-400" : "bg-emerald-600 hover:bg-emerald-700"
               }`}
             >
-              {loadingToken ? "Issuing…" : "Get ORDER_TOKEN"}
+              {loadingToken ? "Verifying…" : "Get ORDER_TOKEN"}
             </button>
             {token && (
               <button
@@ -340,7 +370,7 @@ deployment:
           <div className="mt-3">
             <div className="text-xs text-gray-600 mb-1">Run inside your container</div>
             <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 overflow-x-auto text-xs">
-              <code>{buildPreloadCmd(token || "<PASTE_TOKEN_HERE>")}</code>
+              <code>{`curl -fsSL ${preloadUrl} | ORDER_TOKEN=${token || "<PASTE_TOKEN_HERE>"} bash`}</code>
             </pre>
           </div>
 
@@ -372,9 +402,7 @@ deployment:
         <header className="px-6 py-4 bg-gray-900 text-white flex items-center justify-between">
           <div className="font-bold text-lg">Indianode — Storage</div>
           <div
-            className={`text-xs px-2 py-1 rounded ${
-              busy ? "bg-amber-500" : "bg-emerald-600"
-            }`}
+            className={`text-xs px-2 py-1 rounded ${busy ? "bg-amber-500" : "bg-emerald-600"}`}
             title="GPU status from /api/status"
           >
             {busy ? "GPU busy" : "GPU available"}
@@ -385,22 +413,15 @@ deployment:
           <div className="w-full max-w-6xl mx-auto px-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {plans.map((p) => (
-                <div
-                  key={p.key}
-                  className="bg-white rounded-2xl shadow p-5 flex flex-col justify-between"
-                >
+                <div key={p.key} className="bg-white rounded-2xl shadow p-5 flex flex-col justify-between">
                   <div>
                     <div className="flex items-center justify-between">
                       <h3 className="text-xl font-bold">{p.title}</h3>
-                      <span className="text-[11px] text-emerald-700">
-                        lock: {ATTR_KEY}={ATTR_VAL}
-                      </span>
+                      <span className="text-[11px] text-emerald-700">lock: {ATTR_KEY}={ATTR_VAL}</span>
                     </div>
                     <div className="mt-2 text-2xl font-extrabold">
                       ₹{p.price}{" "}
-                      <span className="text-sm text-gray-500">
-                        ~${toUSD(p.price)}
-                      </span>
+                      <span className="text-sm text-gray-500">~${toUSD(p.price)}</span>
                       <span className="ml-2 text-[11px] text-gray-500">/mo</span>
                     </div>
                     <p className="mt-1 text-sm text-gray-600">
