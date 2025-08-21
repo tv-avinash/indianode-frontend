@@ -10,45 +10,55 @@ const gaEvent = (name, params = {}) => {
 };
 
 export default function StoragePage() {
-  // ---------- env toggles ----------
+  // ----- Feature toggles -----
   const SHOW_AKASH = String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
   const SALES_OPEN = String(process.env.NEXT_PUBLIC_SALES_OPEN || "1") !== "0";
   const ALLOW_PAY_WHEN_BUSY =
     String(process.env.NEXT_PUBLIC_ALLOW_PAY_WHEN_BUSY || "0") === "1";
 
-  // Provider lock & display
+  // ----- Provider lock -----
   const ATTR_KEY = process.env.NEXT_PUBLIC_PROVIDER_ATTR_KEY || "org";
   const ATTR_VAL = process.env.NEXT_PUBLIC_PROVIDER_ATTR_VALUE || "indianode";
   const PROVIDER_ADDR =
     process.env.NEXT_PUBLIC_PROVIDER_ADDR || "akash1YOURADDRESSHERE";
 
-  // Razorpay Payment Links (Card/UPI) for storage subscription (per plan)
+  // ----- Helpers -----
   const cleanRzp = (u) =>
     (u || "")
       .trim()
       .replace(/^https?:\/\/rzp\.io\/(https?:\/\/rzp\.io\/)+/i, "https://rzp.io/");
+
+  // Subscription (monthly) payment links (optional)
   const LINKS = {
     g200: cleanRzp(process.env.NEXT_PUBLIC_RZP_200_MULTI || ""),
     g500: cleanRzp(process.env.NEXT_PUBLIC_RZP_500_MULTI || ""),
     g1tb: cleanRzp(process.env.NEXT_PUBLIC_RZP_1TB_MULTI || ""),
   };
 
-  // ---- LEGACY single preload link fallback ----
+  // Preload links (legacy single var supported)
   const LEGACY_PRELOAD_LINK = cleanRzp(
     process.env.NEXT_PUBLIC_RZP_PRELOAD_MULTI || ""
   );
-
-  // Razorpay Payment Links for PRELOAD add-on (per plan) with legacy fallback
   const LINKS_PRELOAD = {
-    "200Gi": cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_200 || LEGACY_PRELOAD_LINK),
-    "500Gi": cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_500 || LEGACY_PRELOAD_LINK),
-    "1TiB": cleanRzp(process.env.NEXT_PUBLIC_RZP_PRELOAD_1TB || LEGACY_PRELOAD_LINK),
+    "200Gi": cleanRzp(
+      process.env.NEXT_PUBLIC_RZP_PRELOAD_200 || LEGACY_PRELOAD_LINK
+    ),
+    "500Gi": cleanRzp(
+      process.env.NEXT_PUBLIC_RZP_PRELOAD_500 || LEGACY_PRELOAD_LINK
+    ),
+    "1TiB": cleanRzp(
+      process.env.NEXT_PUBLIC_RZP_PRELOAD_1TB || LEGACY_PRELOAD_LINK
+    ),
   };
 
-  // ---------- runtime ----------
+  // ----- Status + FX -----
   const [status, setStatus] = useState("checking...");
   const [fx, setFx] = useState(
-    Number(process.env.NEXT_PUBLIC_USD_INR ? 1 / Number(process.env.NEXT_PUBLIC_USD_INR) : 0.0116)
+    Number(
+      process.env.NEXT_PUBLIC_USD_INR
+        ? 1 / Number(process.env.NEXT_PUBLIC_USD_INR)
+        : 0.0116
+    )
   );
 
   useEffect(() => {
@@ -67,22 +77,37 @@ export default function StoragePage() {
   const busy = status !== "available";
   const canSell = SALES_OPEN && (ALLOW_PAY_WHEN_BUSY || !busy);
 
-  // Monthly storage pricing (you can env-drive these if you want)
+  // ----- Monthly storage prices (INR) with safe mapping & optional env overrides -----
   const PRICE = useMemo(
-    () => ({ g200: 399, g500: 799, g1tb: 1499 }),
+    () => ({
+      g200: Number(process.env.NEXT_PUBLIC_PRICE_200_INR || 399),  // 200 Gi
+      g500: Number(process.env.NEXT_PUBLIC_PRICE_500_INR || 799),  // 500 Gi
+      g1tb: Number(process.env.NEXT_PUBLIC_PRICE_1TB_INR || 1499), // 1 TiB
+    }),
     []
   );
 
-  // ---- Preload price per plan (defaults), with LEGACY single price fallback ----
+  // ----- Preload one-time prices (INR) with legacy fallback -----
   const LEGACY_PRELOAD_PRICE = Number(
     process.env.NEXT_PUBLIC_PRELOAD_INR || 0
-  ); // if you had only one price before
-
+  );
   const PRELOAD_PRICE = useMemo(
     () => ({
-      "200Gi": Number(process.env.NEXT_PUBLIC_PRELOAD_200_INR || LEGACY_PRELOAD_PRICE || 499),
-      "500Gi": Number(process.env.NEXT_PUBLIC_PRELOAD_500_INR || LEGACY_PRELOAD_PRICE || 799),
-      "1TiB": Number(process.env.NEXT_PUBLIC_PRELOAD_1TB_INR || LEGACY_PRELOAD_PRICE || 1199),
+      "200Gi": Number(
+        process.env.NEXT_PUBLIC_PRELOAD_200_INR ||
+          LEGACY_PRELOAD_PRICE ||
+          499
+      ),
+      "500Gi": Number(
+        process.env.NEXT_PUBLIC_PRELOAD_500_INR ||
+          LEGACY_PRELOAD_PRICE ||
+          799
+      ),
+      "1TiB": Number(
+        process.env.NEXT_PUBLIC_PRELOAD_1TB_INR ||
+          LEGACY_PRELOAD_PRICE ||
+          1199
+      ),
     }),
     [LEGACY_PRELOAD_PRICE]
   );
@@ -96,7 +121,7 @@ export default function StoragePage() {
     { key: "g1tb", title: "1 TiB", price: PRICE.g1tb, size: "1TiB" },
   ];
 
-  // For preload.sh URL
+  // Preload script URL
   const base = process.env.NEXT_PUBLIC_DEPLOYER_BASE || "";
   const origin =
     typeof window !== "undefined" && window.location?.origin
@@ -106,7 +131,7 @@ export default function StoragePage() {
     ? `${base.replace(/\/+$/, "")}/storage/preload.sh`
     : `${origin}/downloads/scripts/preload.sh`;
 
-  // ---------- SDL generator (locked) ----------
+  // ----- Locked SDL generator -----
   function buildLockedSDL(sizeStr) {
     return `version: "2.0"
 
@@ -186,11 +211,11 @@ deployment:
     }
   }
 
-  // ---------- Preload Modal (ORDER_TOKEN flow) ----------
+  // ----- Preload modal (ORDER_TOKEN) -----
   const [modalOpen, setModalOpen] = useState(false);
   const [modalPlan, setModalPlan] = useState("200Gi");
   const [email, setEmail] = useState("");
-  const [ref, setRef] = useState(""); // Razorpay payment_id (pay_...)
+  const [ref, setRef] = useState(""); // Razorpay payment id (pay_...)
   const [token, setToken] = useState("");
   const [tokenMsg, setTokenMsg] = useState("");
   const [loadingToken, setLoadingToken] = useState(false);
@@ -223,7 +248,11 @@ deployment:
       });
       const text = await r.text();
       let j;
-      try { j = JSON.parse(text); } catch { j = { error: text || "invalid_response" }; }
+      try {
+        j = JSON.parse(text);
+      } catch {
+        j = { error: text || "invalid_response" };
+      }
       if (!r.ok || !j?.token) throw new Error(j?.error || "token_failed");
 
       setToken(j.token);
@@ -256,10 +285,15 @@ deployment:
   const Modal = () =>
     !modalOpen ? null : (
       <div className="fixed inset-0 z-50 flex items-center justify-center">
-        <div className="absolute inset-0 bg-black/50" onClick={() => setModalOpen(false)} />
+        <div
+          className="absolute inset-0 bg-black/50"
+          onClick={() => setModalOpen(false)}
+        />
         <div className="relative bg-white w-full max-w-xl mx-4 rounded-2xl shadow-lg p-6">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-semibold">Preload Add-on (requires ORDER_TOKEN)</h3>
+            <h3 className="text-lg font-semibold">
+              Preload Add-on (requires ORDER_TOKEN)
+            </h3>
             <button
               onClick={() => setModalOpen(false)}
               className="text-gray-500 hover:text-gray-800"
@@ -271,7 +305,8 @@ deployment:
           <div className="text-sm text-gray-700">
             <p className="mb-2">
               Plan: <b>{modalPlan}</b> • Price:{" "}
-              <b>₹{PRELOAD_PRICE[modalPlan]}</b> (~${toUSD(PRELOAD_PRICE[modalPlan])})
+              <b>₹{PRELOAD_PRICE[modalPlan]}</b> (~$
+              {toUSD(PRELOAD_PRICE[modalPlan])})
             </p>
             <ol className="list-decimal pl-5 space-y-1">
               <li>
@@ -307,12 +342,42 @@ deployment:
                 .
               </li>
               <li>
-                Enter your <b>email</b> and Razorpay <b>payment id</b> (starts with <code>pay_</code>) to get your <b>ORDER_TOKEN</b>.
+                Enter your <b>email</b> and Razorpay <b>payment id</b> (starts
+                with <code>pay_</code>) to get your <b>ORDER_TOKEN</b>.
               </li>
               <li>
-                Inside your container, run the command with <b>ORDER_TOKEN</b> to preload datasets/models into <code>/data</code>.
+                <b>Run the command inside your container</b> (not on the host)
+                to preload into <code>/data</code>.
               </li>
             </ol>
+
+            <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-[13px] leading-5">
+              <b>Where to run?</b> After your SDL is deployed and the lease is
+              <i> running</i> on Indianode:
+              <ul className="list-disc pl-5 mt-1 space-y-1">
+                <li>
+                  In <b>Cloudmos</b> or <b>Akash Console</b>, open the app and
+                  click <b>Shell/Exec</b> to get a terminal{" "}
+                  <i>inside the container</i>.
+                </li>
+                <li>
+                  Verify volume: <code>df -h | grep /data</code> should show your
+                  {` `}{modalPlan} dataset.
+                </li>
+                <li>
+                  Then run:
+                  <pre className="bg-gray-900 text-gray-100 rounded mt-2 p-2 overflow-x-auto">
+                    <code>
+                      {`curl -fsSL ${preloadUrl} | ORDER_TOKEN=${token || "<PASTE_TOKEN_HERE>"} bash`}
+                    </code>
+                  </pre>
+                </li>
+              </ul>
+              <div className="mt-2">
+                <b>Never</b> run this on the provider host; it’s intended only
+                for the container filesystem.
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
@@ -338,7 +403,9 @@ deployment:
               />
             </label>
             <label className="flex flex-col">
-              <span className="text-xs font-semibold mb-1">Razorpay payment id</span>
+              <span className="text-xs font-semibold mb-1">
+                Razorpay payment id
+              </span>
               <input
                 value={ref}
                 onChange={(e) => setRef(e.target.value)}
@@ -353,7 +420,9 @@ deployment:
               onClick={claimToken}
               disabled={loadingToken}
               className={`px-4 py-2 rounded-xl text-white ${
-                loadingToken ? "bg-gray-400" : "bg-emerald-600 hover:bg-emerald-700"
+                loadingToken
+                  ? "bg-gray-400"
+                  : "bg-emerald-600 hover:bg-emerald-700"
               }`}
             >
               {loadingToken ? "Verifying…" : "Get ORDER_TOKEN"}
@@ -377,26 +446,20 @@ deployment:
             </div>
           )}
 
-          <div className="mt-3">
-            <div className="text-xs text-gray-600 mb-1">Run inside your container</div>
-            <pre className="bg-gray-900 text-gray-100 rounded-lg p-3 overflow-x-auto text-xs">
-              <code>{`curl -fsSL ${preloadUrl} | ORDER_TOKEN=${token || "<PASTE_TOKEN_HERE>"} bash`}</code>
-            </pre>
-          </div>
-
           {tokenMsg && (
             <div className="mt-3 text-sm text-gray-700">{tokenMsg}</div>
           )}
 
           <div className="mt-4 text-xs text-gray-500">
-            The script verifies your <b>ORDER_TOKEN</b> and that the lease runs on{" "}
-            <code>{PROVIDER_ADDR}</code>. Without a valid token, preload will refuse.
+            The script verifies your <b>ORDER_TOKEN</b> and that the lease runs
+            on <code>{PROVIDER_ADDR}</code>. Without a valid token, preload will
+            refuse.
           </div>
         </div>
       </div>
     );
 
-  // ---------- UI (compact / single screen) ----------
+  // ----- UI -----
   return (
     <>
       <Head>
@@ -412,7 +475,9 @@ deployment:
         <header className="px-6 py-4 bg-gray-900 text-white flex items-center justify-between">
           <div className="font-bold text-lg">Indianode — Storage</div>
           <div
-            className={`text-xs px-2 py-1 rounded ${busy ? "bg-amber-500" : "bg-emerald-600"}`}
+            className={`text-xs px-2 py-1 rounded ${
+              busy ? "bg-amber-500" : "bg-emerald-600"
+            }`}
             title="GPU status from /api/status"
           >
             {busy ? "GPU busy" : "GPU available"}
@@ -423,15 +488,22 @@ deployment:
           <div className="w-full max-w-6xl mx-auto px-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {plans.map((p) => (
-                <div key={p.key} className="bg-white rounded-2xl shadow p-5 flex flex-col justify-between">
+                <div
+                  key={p.key}
+                  className="bg-white rounded-2xl shadow p-5 flex flex-col justify-between"
+                >
                   <div>
                     <div className="flex items-center justify-between">
                       <h3 className="text-xl font-bold">{p.title}</h3>
-                      <span className="text-[11px] text-emerald-700">lock: {ATTR_KEY}={ATTR_VAL}</span>
+                      <span className="text-[11px] text-emerald-700">
+                        lock: {ATTR_KEY}={ATTR_VAL}
+                      </span>
                     </div>
                     <div className="mt-2 text-2xl font-extrabold">
                       ₹{p.price}{" "}
-                      <span className="text-sm text-gray-500">~${toUSD(p.price)}</span>
+                      <span className="text-sm text-gray-500">
+                        ~${toUSD(p.price)}
+                      </span>
                       <span className="ml-2 text-[11px] text-gray-500">/mo</span>
                     </div>
                     <p className="mt-1 text-sm text-gray-600">
@@ -440,7 +512,6 @@ deployment:
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-2">
-                    {/* Always show Akash deploy (locked SDL) */}
                     {SHOW_AKASH && (
                       <>
                         <button
@@ -460,7 +531,6 @@ deployment:
                       </>
                     )}
 
-                    {/* Card/UPI — gated by sales/busy */}
                     {canSell ? (
                       LINKS[p.key] ? (
                         <a
@@ -499,11 +569,11 @@ deployment:
                       )
                     ) : (
                       <div className="col-span-2 text-center text-sm text-gray-600">
-                        Card/UPI disabled{busy && !ALLOW_PAY_WHEN_BUSY ? " • GPU busy" : ""}
+                        Card/UPI disabled
+                        {busy && !ALLOW_PAY_WHEN_BUSY ? " • GPU busy" : ""}
                       </div>
                     )}
 
-                    {/* Preload add-on (ORDER_TOKEN) */}
                     <button
                       onClick={() => openPreload(p.size)}
                       className="col-span-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl px-3 py-2"
@@ -516,15 +586,42 @@ deployment:
               ))}
             </div>
 
-            <div className="mt-4 text-center text-xs text-gray-600">
-              Provider: <code>{PROVIDER_ADDR}</code> • Data persists for the lease • No backups/SLA
+            <div className="mt-4 text-center text-xs text-gray-700">
+              <details className="inline-block bg-gray-100 border border-gray-200 rounded-xl px-4 py-3">
+                <summary className="cursor-pointer font-semibold">
+                  How to deploy safely (read this)
+                </summary>
+                <ol className="list-decimal text-left pl-5 mt-2 space-y-1">
+                  <li>
+                    <b>Download the SDL</b> (Deploy on Akash). It’s locked with{" "}
+                    <code>{ATTR_KEY}={ATTR_VAL}</code> so it lands on Indianode.
+                  </li>
+                  <li>
+                    In <b>Cloudmos Desktop</b> or <b>Akash Console</b>, create a
+                    deployment and upload the SDL. Wait until the lease is{" "}
+                    <b>active</b>.
+                  </li>
+                  <li>
+                    Open a <b>Shell/Exec</b> inside the container (from the UI).
+                    Confirm volume with <code>df -h | grep /data</code>.
+                  </li>
+                  <li>
+                    To preload models/datasets: open the Preload dialog, get an{" "}
+                    <b>ORDER_TOKEN</b> using your Razorpay <code>pay_…</code>{" "}
+                    id, then run the command <b>inside the container</b>, never
+                    on the host VM.
+                  </li>
+                </ol>
+              </details>
             </div>
           </div>
         </main>
 
         <footer className="px-6 py-3 text-center text-xs text-gray-500">
           © {new Date().getFullYear()} Indianode •{" "}
-          <a href="/" className="text-blue-600 hover:underline">Home</a>
+          <a href="/" className="text-blue-600 hover:underline">
+            Home
+          </a>
         </footer>
       </div>
 
