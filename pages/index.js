@@ -249,6 +249,20 @@ export default function Home() {
   const busy = status !== "available";
   const disabled = loading;
 
+  // Map product to the right Akash info page
+  const akashHrefFor = (key) => {
+    switch (key) {
+      case "whisper":
+        return "/whisper-gpu";
+      case "sd":
+        return "/sdls";
+      case "llama":
+        return "/llm-hosting";
+      default:
+        return "/sdls";
+    }
+  };
+
   return (
     <>
       <Head>
@@ -458,10 +472,10 @@ export default function Home() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-2 mt-4">
-                    {/* Akash deploy option */}
+                    {/* Akash deploy option (product-specific) */}
                     {SHOW_AKASH && (
                       <Link
-                        href="/storage"
+                        href={akashHrefFor(t.key)}
                         onClick={() =>
                           gaEvent("select_content", {
                             content_type: "button",
