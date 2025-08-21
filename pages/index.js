@@ -1,4 +1,3 @@
-// pages/index.js
 import { useState, useEffect, useMemo } from "react";
 import Script from "next/script";
 import Head from "next/head";
@@ -12,7 +11,7 @@ const gaEvent = (name, params = {}) => {
   } catch {}
 };
 
-// --- SDL helpers (hero buttons) ---
+// -------- SDL helpers (hero buttons) --------
 function blobDownload(filename, text) {
   const blob = new Blob([text], { type: "text/yaml;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -74,15 +73,17 @@ export default function Home() {
   const [status, setStatus] = useState("checking...");
   const [loading, setLoading] = useState(false);
 
+  // Buyer inputs
   const [email, setEmail] = useState("");
   const [minutes, setMinutes] = useState(60);
   const [promo, setPromo] = useState("");
 
+  // Waitlist + banners
   const [interest, setInterest] = useState("sd");
   const [wlMsg, setWlMsg] = useState("");
   const [msg, setMsg] = useState("");
 
-  // Modal (command-only, after payment)
+  // Post-payment command modal
   const [showModal, setShowModal] = useState(false);
   const [orderToken, setOrderToken] = useState("");
   const [modalProduct, setModalProduct] = useState("");
@@ -107,11 +108,15 @@ export default function Home() {
       .catch(() => setStatus("offline"));
   }, []);
 
+  // “Price for 60 minutes” base (₹)
   const price60 = { whisper: 100, sd: 200, llama: 300 };
+
+  // Promo: TRY / TRY10 => ₹5 off
   const PROMO_OFF_INR = 5;
   const promoCode = (promo || "").trim().toUpperCase();
   const promoActive = promoCode === "TRY" || promoCode === "TRY10";
 
+  // Pricing helpers
   function priceInrFor(key, mins) {
     const base = price60[key];
     if (!base) return 0;
@@ -122,26 +127,26 @@ export default function Home() {
   }
   function priceUsdFromInr(inr) {
     const val = inr * fx;
-    return Math.round((val + Number.EPSILON) * 100) / 100;
+    return Math.round((val + Number.EPSILON) * 100) / 100; // 2dp
   }
 
   const templates = useMemo(
     () => [
-      { key: "whisper", name: "Whisper ASR",   desc: "Speech-to-text on GPU" },
-      { key: "sd",      name: "Stable Diffusion", desc: "Text-to-Image AI" },
-      { key: "llama",   name: "LLaMA Inference",  desc: "Run an LLM on GPU" },
+      { key: "whisper", name: "Whisper ASR", desc: "Speech-to-text on GPU" },
+      { key: "sd", name: "Stable Diffusion", desc: "Text-to-Image AI" },
+      { key: "llama", name: "LLaMA Inference", desc: "Run an LLM on GPU" },
     ],
     []
   );
 
-  // --- Payments ---
+  // -------- Payments --------
   async function createRazorpayOrder({ product, minutes, userEmail }) {
     const r = await fetch("/api/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ product, minutes, userEmail, promo }),
     });
-    const data = await r.json();
+    const data = await r.json().catch(() => ({}));
     if (!r.ok) {
       if (r.status === 409 && data?.error === "gpu_busy") {
         throw new Error("GPU is busy. Please try again later.");
@@ -169,6 +174,7 @@ export default function Home() {
 
       const order = await createRazorpayOrder({ product, minutes, userEmail });
 
+      // GA
       const valueInr = Number(((order.amount || 0) / 100).toFixed(2));
       gaEvent("begin_checkout", {
         value: valueInr,
@@ -204,18 +210,39 @@ export default function Home() {
         theme: { color: "#111827" },
         handler: async function (response) {
           try {
-            const m = await fetch("/api/gpu/mint", {
+            // Robust parse: read text first, then JSON-try
+            const mintRes = await fetch("/api/gpu/mint", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
-                paymentId: response.razorpay_payment_id,
+                paymentId: response.razorpay_payment_id,     // common name
+                razorpayPaymentId: response.razorpay_payment_id, // alt name if backend expects this
                 product,
                 minutes,
                 email: userEmail,
               }),
             });
-            const j = await m.json();
-            if (!m.ok || !j?.token) throw new Error(j?.error || "token_mint_failed");
+
+            const raw = await mintRes.text();
+            let j = null;
+            try {
+              j = JSON.parse(raw);
+            } catch {
+              // Not JSON — keep j = null
+            }
+
+            if (!mintRes.ok || !j?.token) {
+              console.error("Mint error", {
+                status: mintRes.status,
+                raw: raw?.slice(0, 500),
+              });
+              const serverMsg =
+                (j && (j.error || j.message)) ||
+                (raw && raw.slice(0, 180)) ||
+                "token_mint_failed";
+              alert(`Could not mint ORDER_TOKEN (${mintRes.status}). ${serverMsg}`);
+              return;
+            }
 
             gaEvent("purchase", {
               transaction_id: response.razorpay_payment_id,
@@ -237,7 +264,8 @@ export default function Home() {
 
             openCommandModal({ token: j.token, product, minutes });
           } catch (e) {
-            alert(e.message || "Could not mint ORDER_TOKEN");
+            console.error(e);
+            alert(e?.message || "Could not mint ORDER_TOKEN");
           }
         },
       };
@@ -262,7 +290,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ product, minutes, amountUsd }),
       });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j?.error || "paypal_create_failed");
 
       gaEvent("begin_checkout", {
@@ -320,7 +348,7 @@ export default function Home() {
   const busy = status !== "available";
   const disabled = loading;
 
-  // Build command text for modal
+  // --- Command text for modal ---
   const siteOrigin =
     typeof window !== "undefined"
       ? window.location.origin
@@ -376,8 +404,7 @@ export default function Home() {
             3090 GPU on demand • India & International payments
           </h1>
           <p className="text-center mb-6 text-lg">
-            Current GPU Status:{" "}
-            <span className="font-semibold">{status}</span>
+            Current GPU Status: <span className="font-semibold">{status}</span>
           </p>
 
           {/* HERO: Akash SDL quick actions */}
@@ -527,7 +554,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* Product cards (no Deploy-on-card; pay only) */}
+          {/* Product cards (pay only; no duplicate Deploy buttons) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {templates.map((t) => {
               const inr = priceInrFor(t.key, minutes);
@@ -649,7 +676,7 @@ export default function Home() {
               <button onClick={() => setShowModal(false)} aria-label="Close">✕</button>
             </div>
             <p className="text-sm text-gray-700 mb-4">
-              Token minted. Run the command below from <b>your laptop or any safe machine</b>
+              Run the command below from <b>your laptop or any safe machine</b>
               (do <b>not</b> run on your Akash host VM). It redeems your ORDER_TOKEN and queues the job for <b>{modalMinutes} min</b>.
             </p>
 
