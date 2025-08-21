@@ -30,6 +30,10 @@ export default function Home() {
   const enablePayPal =
     String(process.env.NEXT_PUBLIC_ENABLE_PAYPAL || "0") === "1";
 
+  // Show Akash deploy button (0/1)
+  const SHOW_AKASH =
+    String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
+
   // FX (INR->USD)
   const [fx, setFx] = useState(0.012);
   useEffect(() => {
@@ -454,6 +458,23 @@ export default function Home() {
                   </div>
 
                   <div className="grid grid-cols-1 gap-2 mt-4">
+                    {/* Akash deploy option */}
+                    {SHOW_AKASH && (
+                      <Link
+                        href="/storage"
+                        onClick={() =>
+                          gaEvent("select_content", {
+                            content_type: "button",
+                            item_id: `deploy_akash_${t.key}`,
+                          })
+                        }
+                        className="text-center bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl"
+                      >
+                        Deploy on Akash (SDL)
+                      </Link>
+                    )}
+
+                    {/* Existing pay buttons (kept intact) */}
                     <button
                       className={`text-white px-4 py-2 rounded-xl ${
                         disabled
