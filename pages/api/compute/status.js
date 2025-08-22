@@ -1,27 +1,25 @@
+// pages/api/compute/status.js
+import { kv } from "@vercel/kv";
+
 export default async function handler(req, res) {
   try {
-    const { id } = req.query;
+    if (req.method !== "GET") return res.status(405).json({ ok: false, error: "method_not_allowed" });
+    const { id } = req.query || {};
     if (!id) return res.status(400).json({ ok: false, error: "missing_id" });
 
-    const KV_URL = process.env.KV_REST_API_URL;
-    const KV_TOKEN = process.env.KV_REST_API_TOKEN;
-    if (!KV_URL || !KV_TOKEN) {
-      return res.status(500).json({ ok: false, error: "kv_not_configured" });
-    }
+    const PFX  = process.env.KV_PREFIX || "compute";
+    const SKEY = `${PFX}:status:${id}`;
 
-    const r = await fetch(`${KV_URL}/get/${encodeURIComponent(`job:${id}`)}`, {
-      headers: { Authorization: `Bearer ${KV_TOKEN}` },
-      cache: "no-store",
-    });
-    const j = await r.json(); // { result: "<json string>" | null }
-    if (!j || !j.result) {
-      return res.status(200).json({ ok: false, error: "not_found" });
-    }
+    const raw = await kv.get(SKEY);
+    if (!raw) return res.status(404).json({ ok: false, error: "not_found" });
 
-    let job;
-    try { job = JSON.parse(j.result); } catch { job = j.result; }
-    return res.status(200).json({ ok: true, ...job });
-  } catch {
-    return res.status(500).json({ ok: false, error: "status_failed" });
+    try {
+      const obj = JSON.parse(raw);
+      return res.json({ ok: true, ...obj });
+    } catch {
+      return res.json({ ok: true, id, status: "unknown" });
+    }
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 }

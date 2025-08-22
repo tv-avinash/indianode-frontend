@@ -1,78 +1,42 @@
 // pages/api/compute/pick.js
+import { kv } from "@vercel/kv";
+
+function auth(req) {
+  const h = req.headers["authorization"] || req.headers["Authorization"] || "";
+  const x = req.headers["x-provider-key"] || req.headers["X-Provider-Key"] || "";
+  const key = h.startsWith("Bearer ") ? h.slice(7) : (x || "");
+  return key && key === process.env.PROVIDER_KEY;
+}
+
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ ok: false, error: "method_not_allowed" });
-  }
-
-  // --- Auth (Bearer OR x-provider-key) ---
-  const supplied =
-    (req.headers.authorization || "").replace(/^bearer\s+/i, "") ||
-    req.headers["x-provider-key"] ||
-    "";
-  const expected = process.env.COMPUTE_PROVIDER_KEY || "";
-  if (!expected || supplied !== expected) {
-    return res.status(401).json({ ok: false, error: "unauthorized" });
-  }
-
-  const KV_URL = process.env.KV_REST_API_URL;
-  const KV_TOKEN = process.env.KV_REST_API_TOKEN;
-  if (!KV_URL || !KV_TOKEN) {
-    return res.status(500).json({ ok: false, error: "kv_not_configured" });
-  }
-
-  // Helper to call Upstash REST
-  async function kv(path, body) {
-    const r = await fetch(`${KV_URL}${path}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${KV_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    return { ok: r.ok, status: r.status, json: await r.json().catch(() => ({})) };
-  }
-
   try {
-    // Non-blocking pop; if empty, result === null
-    const popped = await kv("/lpop/compute:queue");
-    if (!popped.ok) {
-      return res.status(502).json({ ok: false, error: "kv_lpop_failed", status: popped.status });
-    }
-    const raw = popped.json?.result || null;
-    if (!raw) {
-      return res.status(200).json({ ok: true, job: null });
-    }
+    if (req.method !== "POST") return res.status(405).json({ ok: false, error: "method_not_allowed" });
+    if (!auth(req)) return res.status(401).json({ ok: false, error: "unauthorized" });
 
-    // Parse the job payload that /redeem enqueued
+    const PFX  = process.env.KV_PREFIX || "compute";
+    const QKEY = `${PFX}:queue`;
+    const SKEY = (id) => `${PFX}:status:${id}`;
+
+    const raw = await kv.rpop(QKEY);
+    if (!raw) return res.json({ ok: true, job: null });
+
     let job;
-    try {
-      job = JSON.parse(raw);
-    } catch {
-      return res.status(500).json({ ok: false, error: "queue_item_parse_failed" });
-    }
+    try { job = JSON.parse(raw); } catch { job = null; }
+    if (!job || !job.id) return res.json({ ok: true, job: null });
 
-    // Mark "running" right away so /status changes from "queued"
-    const jobKey = `compute:job:${job.id}`;
-    const now = Date.now();
-    const running = {
-      ...(job || {}),
+    // set running status
+    await kv.set(SKEY(job.id), JSON.stringify({
+      id: job.id,
       status: "running",
-      startedAt: now,
-      message: "picked by provider",
-    };
+      sku: job.product,
+      minutes: job.minutes,
+      email: job.email || "",
+      startedAt: Date.now(),
+      message: "picked by provider"
+    }), { ex: 7 * 24 * 3600 });
 
-    // Save with a TTL (e.g., 24h) so old records expire automatically
-    const setRes = await kv(`/set/${encodeURIComponent(jobKey)}`, running);
-    if (!setRes.ok) {
-      return res.status(502).json({ ok: false, error: "kv_set_failed", status: setRes.status });
-    }
-    await kv(`/expire/${encodeURIComponent(jobKey)}/86400`);
-
-    // Return the job to the worker
-    return res.status(200).json({ ok: true, job: running });
+    return res.json({ ok: true, job });
   } catch (e) {
-    return res.status(500).json({ ok: false, error: "server_error", detail: String(e && e.message || e) });
+    return res.status(500).json({ ok: false, error: String(e?.message || e) });
   }
 }
