@@ -1,67 +1,77 @@
-// Create a Razorpay order for COMPUTE products
-import Razorpay from "razorpay";
+// pages/api/compute/order.js
+import crypto from "crypto";
 
-const PRICE60 = {
-  cpu2x4: 60,
-  cpu4x8: 120,
-  cpu8x16: 240,
-  redis4: 49,
-  redis8: 89,
-  redis16: 159,
+function json(res, code, obj) {
+  res.status(code).setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify(obj));
+}
+
+const RATES_INR_PER_MIN = {
+  generic: 1,
+  redis7: 1,
+  node: 2,
+  python: 2,
+  docker: 3,
+  service: 3,
 };
 
-// Accept a couple of aliases so mismatched keys don't break
-const ALIAS = {
-  "cpu_2_4": "cpu2x4",
-  "cpu_4_8": "cpu4x8",
-  "cpu_8_16": "cpu8x16",
-  "redis_4": "redis4",
-  "redis_8": "redis8",
-  "redis_16": "redis16",
-};
-
-function normProduct(p) {
-  const k = (p || "").trim();
-  return PRICE60[k] ? k : ALIAS[k] || null;
+function priceInr(product = "generic", minutes = 1, promo = "") {
+  const m = Math.max(1, Number(minutes || 1));
+  const rate = RATES_INR_PER_MIN[product] ?? 1;
+  let total = Math.ceil(rate * m);
+  const p = String(promo || "").trim().toUpperCase();
+  if (p === "TRY" || p === "TRY10") total = Math.max(1, total - 5);
+  return total;
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  if (req.method !== "POST") return json(res, 405, { error: "method_not_allowed" });
 
   try {
     const { product, minutes, userEmail, promo } = req.body || {};
-    const key = normProduct(product);
-    if (!key) return res.status(400).json({ error: "invalid_product" });
+    const amountInr = priceInr(product, minutes, promo);
 
-    const m = Math.max(1, Number(minutes || 1));
-    const base = PRICE60[key];
-    let totalInr = Math.ceil((base / 60) * m);
+    const keyId = process.env.RAZORPAY_KEY_ID || "";
+    const keySecret = process.env.RAZORPAY_KEY_SECRET || "";
 
-    const promoCode = String(promo || "").trim().toUpperCase();
-    if (promoCode === "TRY" || promoCode === "TRY10") totalInr = Math.max(1, totalInr - 5);
+    // If Razorpay keys are missing, return a mocked order for testing.
+    if (!keyId || !keySecret) {
+      return json(res, 200, {
+        id: "order_test_" + crypto.randomBytes(6).toString("hex"),
+        amount: amountInr * 100,
+        currency: "INR",
+        mock: true,
+      });
+    }
 
-    const amountPaise = Math.max(100, totalInr * 100); // Razorpay min ₹1
-
-    const rzp = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID,
-      key_secret: process.env.RAZORPAY_KEY_SECRET,
-    });
-
-    const order = await rzp.orders.create({
-      amount: amountPaise,
-      currency: "INR",
-      receipt: `cmp_${key}_${Date.now()}`,
-      notes: {
-        product: key,
-        minutes: String(m),
-        email: userEmail || "",
-        promo: promoCode || "",
+    const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
+    const orderResp = await fetch("https://api.razorpay.com/v1/orders", {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        amount: amountInr * 100,
+        currency: "INR",
+        receipt: `cmp_${Date.now()}`,
+        notes: {
+          kind: "compute",
+          product,
+          minutes: String(minutes || 1),
+          email: userEmail || "",
+        },
+      }),
     });
 
-    return res.json(order); // {id, amount, currency, ...}
+    if (!orderResp.ok) {
+      const t = await orderResp.text().catch(() => "");
+      return json(res, 500, { error: "rzp_order_failed", details: t.slice(0, 400) });
+    }
+
+    const data = await orderResp.json();
+    return json(res, 200, data);
   } catch (e) {
-    console.error("compute/order error", e);
-    return res.status(500).json({ error: "order_failed" });
+    return json(res, 500, { error: "server_error", message: e?.message || String(e) });
   }
 }
