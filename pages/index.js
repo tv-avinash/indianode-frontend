@@ -4,7 +4,7 @@ import Script from "next/script";
 import Head from "next/head";
 import Link from "next/link";
 
-// --- Analytics helper (safe if gtag isn't ready) ---
+// GA helper: safe no-op if gtag isn't ready
 const gaEvent = (name, params = {}) => {
   try {
     if (typeof window !== "undefined" && window.gtag) {
@@ -13,15 +13,15 @@ const gaEvent = (name, params = {}) => {
   } catch {}
 };
 
-// --- Small modal component ---
+// Lightweight modal
 function Modal({ open, onClose, children, title = "Next steps" }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-2xl mx-4 rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b">
-          <h3 className="font-semibold text-lg">{title}</h3>
+      <div className="relative w-full max-w-2xl mx-3 rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <h3 className="font-semibold">{title}</h3>
           <button
             onClick={onClose}
             className="rounded-lg p-2 hover:bg-gray-100"
@@ -78,7 +78,7 @@ export default function Home() {
   // “Price for 60 minutes” base (₹)
   const price60 = { whisper: 100, sd: 200, llama: 300 };
 
-  // Promo: TRY / TRY10 => ₹5 off total
+  // Promo: TRY / TRY10 => ₹5 off
   const PROMO_OFF_INR = 5;
   const promoCode = (promo || "").trim().toUpperCase();
   const promoActive = promoCode === "TRY" || promoCode === "TRY10";
@@ -106,18 +106,13 @@ export default function Home() {
     []
   );
 
-  // --- Minting modal state ---
+  // --- Minting modal ---
   const [mintOpen, setMintOpen] = useState(false);
   const [mintCmd, setMintCmd] = useState("");
   const [mintToken, setMintToken] = useState("");
   const DEPLOYER_BASE = process.env.NEXT_PUBLIC_DEPLOYER_BASE || "";
-
   function buildRunCommand(token) {
-    if (!DEPLOYER_BASE) {
-      return "missing_env_DEPLOYER_BASE";
-    }
-    // A simple “redeem & queue” script on your backend
-    // (implement /gpu/run.sh to accept ORDER_TOKEN via env and queue the job)
+    if (!DEPLOYER_BASE) return "missing_env_DEPLOYER_BASE";
     return `curl -fsSL ${DEPLOYER_BASE}/gpu/run.sh | ORDER_TOKEN='${token}' bash`;
   }
 
@@ -126,14 +121,14 @@ export default function Home() {
     const r = await fetch("/api/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ product, minutes, userEmail, promo }), // pass promo to your order API if you want
+      body: JSON.stringify({ product, minutes, userEmail, promo }),
     });
     const data = await r.json();
     if (!r.ok) {
-      if (r.status === 409 && data && data.error === "gpu_busy") {
+      if (r.status === 409 && data?.error === "gpu_busy") {
         throw new Error("GPU is busy. Please try again later.");
       }
-      throw new Error(data && data.error ? data.error : "Order creation failed");
+      throw new Error(data?.error || "Order creation failed");
     }
     return data;
   }
@@ -147,17 +142,14 @@ export default function Home() {
         product: productKey,
         minutes: Number(minutes),
         email: (email || "").trim(),
-        promo: (promo || "").trim(), // <<< important for ₹1 test after TRY/TRY10
+        promo: (promo || "").trim(),
       }),
     });
     const j = await r.json();
-    if (!r.ok) {
-      throw new Error(j && j.error ? j.error : "token_mint_failed");
-    }
-    return j; // expect { token: "v1.xxxxx" }
+    if (!r.ok) throw new Error(j?.error || "token_mint_failed");
+    return j;
   }
 
-  // --- Payments (Razorpay + PayPal optional) ---
   async function payWithRazorpay({ product, displayName }) {
     try {
       setMsg("");
@@ -204,24 +196,20 @@ export default function Home() {
         theme: { color: "#111827" },
         handler: async function (response) {
           try {
-            // Mint ORDER_TOKEN on the backend (validates Razorpay payment)
             const result = await mintAfterPayment({
               paymentId: response.razorpay_payment_id,
               productKey: product,
               minutes,
               email: userEmail,
-              promo, // pass raw promo (backend trims/uppercases if needed)
+              promo,
             });
-
-            const token = result && result.token ? result.token : "";
+            const token = result?.token || "";
             if (!token) throw new Error("no_token");
             const cmd = buildRunCommand(token);
-
             setMintToken(token);
             setMintCmd(cmd);
             setMintOpen(true);
 
-            // GA purchase event
             gaEvent("purchase", {
               transaction_id: response.razorpay_payment_id,
               value: valueInr,
@@ -247,7 +235,7 @@ export default function Home() {
 
       const rzp = new window.Razorpay(options);
       rzp.on("payment.failed", (resp) =>
-        alert(resp && resp.error && resp.error.description ? resp.error.description : "Payment failed")
+        alert(resp?.error?.description || "Payment failed")
       );
       rzp.open();
     } catch (e) {
@@ -266,7 +254,7 @@ export default function Home() {
         body: JSON.stringify({ product, minutes, amountUsd }),
       });
       const j = await r.json();
-      if (!r.ok) throw new Error((j && j.error) || "paypal_create_failed");
+      if (!r.ok) throw new Error(j?.error || "paypal_create_failed");
 
       const valueUsd = Number(Number(amountUsd || 0).toFixed(2));
       gaEvent("begin_checkout", {
@@ -286,7 +274,7 @@ export default function Home() {
         payment_method: "paypal",
       });
 
-      window.location.href = j.approveUrl; // capture/record handled on your success route
+      window.location.href = j.approveUrl;
     } catch (e) {
       alert(e.message || "PayPal error");
     } finally {
@@ -309,7 +297,6 @@ export default function Home() {
       });
       if (!r.ok) throw new Error("waitlist_failed");
       setWlMsg("Thanks! We’ll email you as soon as the GPU is free.");
-
       gaEvent("generate_lead", {
         method: "waitlist",
         product: interest,
@@ -330,18 +317,11 @@ export default function Home() {
           content="Run SDLS, Whisper, and LLM inference on NVIDIA RTX 3090 (24GB). Affordable pay-per-minute GPU hosting for AI developers worldwide."
         />
         <link rel="canonical" href="https://www.indianode.com/" />
-
-        {/* OG / Twitter */}
         <meta property="og:title" content="Indianode — GPU Hosting on RTX 3090" />
-        <meta
-          property="og:description"
-          content="GPU hosting for SDLS, Whisper, and LLM workloads on 24GB RTX 3090."
-        />
+        <meta property="og:description" content="GPU hosting for SDLS, Whisper, and LLM workloads on 24GB RTX 3090." />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://www.indianode.com/" />
         <meta name="twitter:card" content="summary_large_image" />
-
-        {/* JSON-LD */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -372,83 +352,77 @@ export default function Home() {
         />
       </Head>
 
-      <div className="min-h-screen bg-gray-50 text-gray-900">
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white text-gray-900">
         <Script src="https://checkout.razorpay.com/v1/checkout.js" />
 
-        <header className="p-6 bg-gray-900 text-white text-center text-2xl font-bold">
-          Indianode GPU Cloud
-        </header>
-
-        <main className="p-8 max-w-5xl mx-auto">
-          <h1 className="text-3xl font-bold mb-2 text-center">
-            3090 GPU on demand • India & International payments
-          </h1>
-          <p className="text-center mb-6 text-lg">
-            Current GPU Status: <span className="font-semibold">{status}</span>
-          </p>
-
-          {/* Storage cross-promo */}
-          <div className="max-w-3xl mx-auto mb-6">
-            <div className="rounded-2xl border border-blue-100 bg-blue-50 px-5 py-4 text-center">
-              <p className="mb-3 text-gray-800">
-                Need fast <b>same-host NVMe storage</b> for your Akash lease?
-              </p>
-              <Link
-                href="/storage"
-                className="inline-block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2"
-              >
-                Explore Storage (200 Gi / 500 Gi / 1 TiB)
-              </Link>
+        {/* Top bar */}
+        <header className="px-5 py-3 bg-gray-900 text-white">
+          <div className="max-w-6xl mx-auto flex items-center justify-between">
+            <div className="font-bold">Indianode GPU Cloud</div>
+            <div
+              className={`text-xs px-2 py-1 rounded ${
+                busy ? "bg-amber-500" : "bg-emerald-600"
+              }`}
+              title="GPU status from /api/status"
+            >
+              {busy ? "GPU busy" : "GPU available"}
             </div>
           </div>
+        </header>
 
-          {/* Hero Akash buttons (locked SDLs live on those pages) */}
-          {SHOW_AKASH_HERO && (
-            <div
-              className={`${
-                busy ? "bg-amber-50 border-amber-200" : "bg-emerald-50 border-emerald-200"
-              } border rounded-2xl p-4 text-center mb-6`}
+        {/* Main — optimized to fit in one screen on laptops */}
+        <main className="max-w-6xl mx-auto px-5 pt-5 pb-4">
+          {/* Slim hero: storage + Akash SDLs */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Link
+              href="/storage"
+              className="inline-flex items-center gap-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-sm shadow"
+              title="Same-host NVMe for your Akash lease"
             >
-              <div className="mb-3">
-                {busy ? (
-                  <>GPU busy. You can still deploy via Akash; we’ll queue you.</>
-                ) : (
-                  <>GPU available. Deploy now on Akash with our ready SDLs.</>
-                )}
-              </div>
-              <div className="flex flex-wrap items-center justify-center gap-3">
-                <Link href="/whisper-gpu" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
+              Explore Storage (200 Gi / 500 Gi / 1 TiB)
+            </Link>
+
+            {SHOW_AKASH_HERO && (
+              <div
+                className={`flex flex-wrap items-center gap-2 rounded-full px-2 py-2 text-sm ${
+                  busy
+                    ? "bg-amber-50 border border-amber-200 text-amber-900"
+                    : "bg-emerald-50 border border-emerald-200 text-emerald-900"
+                }`}
+              >
+                <span className="px-2 hidden sm:inline">
+                  {busy ? "Deploy via Akash — we’ll queue you" : "Deploy now on Akash"}
+                </span>
+                <Link href="/whisper-gpu" className="rounded-full bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5">
                   Whisper (SDL)
                 </Link>
-                <Link href="/sdls" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
+                <Link href="/sdls" className="rounded-full bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5">
                   Stable Diffusion (SDL)
                 </Link>
-                <Link href="/llm-hosting" className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl">
+                <Link href="/llm-hosting" className="rounded-full bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5">
                   LLaMA (SDL)
                 </Link>
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Buyer inputs */}
-          <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 mb-8">
-            <div className="grid md:grid-cols-3 gap-4">
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold mb-1">
-                  Your email (for receipts)
-                </span>
+          {/* Compact inputs row */}
+          <div className="mt-4 bg-white/70 backdrop-blur rounded-2xl border border-gray-100 shadow-sm p-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <label className="flex items-center gap-2">
+                <span className="text-xs font-semibold w-28">Email</span>
                 <input
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
-                  className="border rounded-lg px-3 py-2"
+                  className="flex-1 border rounded-lg px-3 py-2 text-sm"
                   disabled={loading}
                 />
               </label>
 
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold mb-1">Minutes</span>
+              <label className="flex items-center gap-2">
+                <span className="text-xs font-semibold w-28">Minutes</span>
                 <input
                   type="number"
                   min="1"
@@ -457,76 +431,73 @@ export default function Home() {
                   onChange={(e) =>
                     setMinutes(Math.max(1, Number(e.target.value || 1)))
                   }
-                  className="border rounded-lg px-3 py-2"
+                  className="flex-1 border rounded-lg px-3 py-2 text-sm"
                   disabled={loading}
                 />
               </label>
 
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold mb-1">Promo code</span>
+              <label className="flex items-center gap-2">
+                <span className="text-xs font-semibold w-28">Promo code</span>
                 <input
                   value={promo}
                   onChange={(e) => setPromo(e.target.value)}
                   placeholder="TRY / TRY10"
-                  className="border rounded-lg px-3 py-2"
+                  className="flex-1 border rounded-lg px-3 py-2 text-sm"
                   disabled={loading}
                 />
               </label>
             </div>
 
             {busy && (
-              <div className="mt-4 bg-amber-50 border border-amber-200 rounded-lg p-4">
-                <div className="text-sm text-amber-800 mb-3">
-                  GPU is busy. You can still pay now (we’ll queue it) or join the
-                  waitlist:
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <div className="text-xs text-amber-900 mb-2">
+                  GPU is busy. Pay now (we’ll queue it) or join the waitlist:
                 </div>
-                <div className="grid md:grid-cols-3 gap-3">
-                  <label className="flex flex-col">
-                    <span className="text-xs font-semibold mb-1">Email</span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <label className="flex items-center gap-2">
+                    <span className="text-xs font-semibold w-20">Email</span>
                     <input
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="you@example.com"
-                      className="border rounded-lg px-3 py-2"
+                      className="flex-1 border rounded-lg px-3 py-2 text-sm"
                     />
                   </label>
-                  <label className="flex flex-col">
-                    <span className="text-xs font-semibold mb-1">
-                      Interested in
-                    </span>
+                  <label className="flex items-center gap-2">
+                    <span className="text-xs font-semibold w-20">Interest</span>
                     <select
                       value={interest}
                       onChange={(e) => setInterest(e.target.value)}
-                      className="border rounded-lg px-3 py-2"
+                      className="flex-1 border rounded-lg px-3 py-2 text-sm"
                     >
                       <option value="sd">Stable Diffusion</option>
                       <option value="whisper">Whisper ASR</option>
                       <option value="llama">LLaMA Inference</option>
                     </select>
                   </label>
-                  <div className="flex items-end">
-                    <button
-                      onClick={joinWaitlist}
-                      className="w-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl"
-                    >
-                      Notify me
-                    </button>
-                  </div>
+                  <button
+                    onClick={joinWaitlist}
+                    className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-sm"
+                  >
+                    Notify me
+                  </button>
                 </div>
-                {wlMsg && <div className="text-xs text-gray-700 mt-3">{wlMsg}</div>}
+                {wlMsg && (
+                  <div className="text-[11px] text-gray-700 mt-2">{wlMsg}</div>
+                )}
+              </div>
+            )}
+
+            {msg && (
+              <div className="mt-3 text-center text-xs text-amber-700 bg-amber-100 border border-amber-200 rounded-xl px-3 py-2">
+                {msg}
               </div>
             )}
           </div>
 
-          {msg && (
-            <div className="max-w-xl mx-auto mb-6 text-center text-sm text-amber-700 bg-amber-100 border border-amber-200 rounded-xl px-4 py-2">
-              {msg}
-            </div>
-          )}
-
-          {/* Product cards (only pay buttons; Akash links are in the hero) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Product row — compact cards */}
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
             {templates.map((t) => {
               const inr = priceInrFor(t.key, minutes);
               const usd = priceUsdFromInr(inr);
@@ -536,33 +507,31 @@ export default function Home() {
               return (
                 <div
                   key={t.key}
-                  className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between"
+                  className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 flex flex-col justify-between"
                 >
                   <div>
-                    <h2 className="text-xl font-bold mb-2">{t.name}</h2>
-                    <p className="text-gray-600 mb-3">{t.desc}</p>
+                    <h2 className="text-lg font-bold">{t.name}</h2>
+                    <p className="text-sm text-gray-600 mt-1">{t.desc}</p>
 
-                    <p className="text-gray-800">
-                      <span className="font-semibold">
-                        Price for {minutes} min:
-                      </span>{" "}
+                    <div className="mt-2 text-sm">
+                      <span className="font-semibold">Price:</span>{" "}
                       ₹{inr} / ${usd.toFixed(2)}
-                    </p>
+                    </div>
 
                     {promoActive && (
-                      <p className="text-xs text-green-700 mt-1">
-                        Includes promo: −₹{offInr} (≈${offUsd.toFixed(2)})
-                      </p>
+                      <div className="text-[11px] text-green-700 mt-1">
+                        Includes promo −₹{offInr} (≈${offUsd.toFixed(2)})
+                      </div>
                     )}
 
-                    <p className="text-xs text-gray-500 mt-1">
-                      (Base: ₹{price60[t.key]} for 60 min)
-                    </p>
+                    <div className="text-[11px] text-gray-500">
+                      Base ₹{price60[t.key]} / 60 min
+                    </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-2 mt-4">
+                  <div className="mt-3 grid gap-2">
                     <button
-                      className={`text-white px-4 py-2 rounded-xl ${
+                      className={`text-white px-4 py-2 rounded-xl text-sm ${
                         disabled
                           ? "bg-gray-400 cursor-not-allowed"
                           : "bg-indigo-600 hover:bg-indigo-700"
@@ -577,7 +546,7 @@ export default function Home() {
 
                     {enablePayPal && (
                       <button
-                        className={`text-white px-4 py-2 rounded-xl ${
+                        className={`text-white px-4 py-2 rounded-xl text-sm ${
                           disabled
                             ? "bg-gray-400 cursor-not-allowed"
                             : "bg-slate-700 hover:bg-slate-800"
@@ -591,10 +560,9 @@ export default function Home() {
                       </button>
                     )}
 
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Billed in INR via Razorpay. USD shown is an approximate
-                      amount based on today’s rate. Prefer Akash? Use the SDL
-                      buttons at the top.
+                    <p className="text-[10px] text-gray-500">
+                      INR billed via Razorpay. USD is approximate. Prefer Akash?
+                      Use SDL buttons at top.
                     </p>
                   </div>
                 </div>
@@ -603,51 +571,37 @@ export default function Home() {
           </div>
         </main>
 
-        <section className="mt-16 border-t pt-10 pb-6 text-center text-sm text-gray-700">
-          <p className="mb-2">
-            💬 Looking for custom pricing, discounts, or rate concessions? Reach
-            out:
-          </p>
-          <p>
-            Email:{" "}
-            <a
-              href="mailto:tvavinash@gmail.com"
-              className="text-blue-600 hover:underline"
-            >
-              tvavinash@gmail.com
-            </a>
-          </p>
-          <p>
-            Phone:{" "}
-            <a href="tel:+919902818004" className="text-blue-600 hover:underline">
-              +919902818004
-            </a>
-          </p>
-          <p className="mt-3 text-xs text-gray-400">
-            We usually reply within 24 hours.
-          </p>
-        </section>
-
-        <footer className="p-4 text-center text-sm text-gray-600">
-          <nav className="mb-2 space-x-4">
-            <Link href="/whisper-gpu" className="text-blue-600 hover:underline">
+        {/* Ultra-slim footer to keep above the fold */}
+        <footer className="px-5 py-3 text-center text-[12px] text-gray-600 border-t">
+          <div className="mb-1">
+            <Link href="/whisper-gpu" className="text-blue-600 hover:underline mx-2">
               Whisper
             </Link>
-            <Link href="/sdls" className="text-blue-600 hover:underline">
+            <Link href="/sdls" className="text-blue-600 hover:underline mx-2">
               SDLS
             </Link>
-            <Link href="/llm-hosting" className="text-blue-600 hover:underline">
+            <Link href="/llm-hosting" className="text-blue-600 hover:underline mx-2">
               LLM
             </Link>
-            <Link href="/storage" className="text-blue-600 hover:underline">
+            <Link href="/storage" className="text-blue-600 hover:underline mx-2">
               Storage
             </Link>
-          </nav>
-          © {new Date().getFullYear()} Indianode
+          </div>
+          <div>
+            Contact:{" "}
+            <a href="mailto:tvavinash@gmail.com" className="text-blue-600 hover:underline">
+              tvavinash@gmail.com
+            </a>{" "}
+            •{" "}
+            <a href="tel:+919902818004" className="text-blue-600 hover:underline">
+              +91 99028 18004
+            </a>{" "}
+            • © {new Date().getFullYear()} Indianode
+          </div>
         </footer>
       </div>
 
-      {/* Mint modal with only the run command */}
+      {/* Mint modal (command only) */}
       <Modal
         open={mintOpen}
         onClose={() => setMintOpen(false)}
@@ -655,9 +609,9 @@ export default function Home() {
       >
         <div className="space-y-3">
           <p className="text-sm text-gray-700">
-            Your payment was verified and a one-time <b>ORDER_TOKEN</b> was
-            minted. Run the command below from any machine to redeem it and
-            queue your job. <b>Do not</b> run it on your Akash host VM.
+            A one-time <b>ORDER_TOKEN</b> was minted. Run the command below from
+            any machine to redeem it and queue your job. <b>Do not</b> run it on
+            your Akash host VM.
           </p>
 
           {!DEPLOYER_BASE && (
@@ -698,9 +652,9 @@ export default function Home() {
               What about time limits?
             </summary>
             <p className="mt-1">
-              Your token encodes the product and minutes you purchased. Our
-              server enforces the duration (e.g. stops the container when time
-              is up). Extra usage requires another token.
+              Your token encodes product + minutes purchased. Our server
+              enforces duration (stops the container when time is up). Extra
+              usage requires another token.
             </p>
           </details>
         </div>
