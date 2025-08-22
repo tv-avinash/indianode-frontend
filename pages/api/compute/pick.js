@@ -1,54 +1,62 @@
 // pages/api/compute/pick.js
+// POST (auth via x-provider-key) -> returns { ok:true, job } or { ok:true, job:null }
 
-function json(res, code, obj) {
-  res.status(code).setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify(obj));
-}
+const KV_URL = process.env.KV_REST_API_URL;
+const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+const PROVIDER_KEY = process.env.PROVIDER_KEY;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const MAIL_FROM = process.env.MAIL_FROM || "Indianode <no-reply@indianode.com>";
+const BASE_URL = process.env.BASE_URL || "https://www.indianode.com";
 
-const KV_URL = process.env.KV_REST_API_URL || "";
-const KV_TOKEN = process.env.KV_REST_API_TOKEN || "";
-const QKEY = "compute:queue";
-function jobKey(id) { return `compute:job:${id}`; }
-
-async function kv(pathParts, method = "GET", body) {
-  if (!KV_URL || !KV_TOKEN) throw new Error("kv_not_configured");
-  const url = `${KV_URL}/${pathParts.map(encodeURIComponent).join("/")}`;
-  const headers = { Authorization: `Bearer ${KV_TOKEN}` };
-  let opts = { method, headers };
-  if (body !== undefined) {
-    headers["Content-Type"] = "application/json";
-    opts.body = JSON.stringify(body);
-  }
-  const r = await fetch(url, opts);
-  const j = await r.json().catch(async () => ({ result: await r.text() }));
-  if (!r.ok) throw new Error(`kv_${pathParts[0]}_failed`);
-  return j;
+async function kv(command, ...args) {
+  const r = await fetch(KV_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${KV_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ command, args }),
+  });
+  return r.json();
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return json(res, 405, { error: "method_not_allowed" });
+  if (req.method !== "POST") return res.status(405).end();
   const key = req.headers["x-provider-key"];
-  if (!key || key !== process.env.COMPUTE_PROVIDER_KEY) {
-    return json(res, 401, { error: "unauthorized" });
-  }
+  if (!key || key !== PROVIDER_KEY) return res.status(401).json({ ok: false, error: "unauthorized" });
 
   try {
-    // RPOP = take from tail (FIFO with LPUSH)
-    const pop = await kv(["rpop", QKEY], "POST");
-    const id = pop?.result || null;
-    if (!id) return json(res, 200, { ok: true, job: null });
+    const popped = await kv("LPOP", "compute:queue");
+    const id = popped?.result;
+    if (!id) return res.status(200).json({ ok: true, job: null });
 
-    const got = await kv(["get", jobKey(id)]);
-    const jobStr = got?.result;
-    if (!jobStr) return json(res, 200, { ok: true, job: null });
+    const r = await kv("GET", `compute:job:${id}`);
+    const job = JSON.parse(r?.result || "{}");
 
-    const job = JSON.parse(jobStr);
+    const { publicHost = "", providerName = "default" } = await req.json?.() || req.body || {};
     job.status = "running";
+    job.provider = providerName;
+    job.public_host = publicHost || job.public_host || null;
     job.started_at = Date.now();
-    await kv(["set", jobKey(id), JSON.stringify(job)], "POST");
 
-    return json(res, 200, { ok: true, job });
-  } catch (e) {
-    return json(res, 500, { error: "server_error", message: e?.message || String(e) });
+    await kv("SET", `compute:job:${id}`, JSON.stringify(job), "EX", 60 * 60 * 24 * 7);
+
+    // Email user: started
+    if (RESEND_API_KEY && job.email) {
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: MAIL_FROM,
+          to: job.email,
+          subject: `Started: ${job.product} • ${job.minutes} min`,
+          text: `Your job has started.\n\nJob ID: ${id}\nStatus: ${BASE_URL}/api/compute/status?id=${id}`,
+        }),
+      });
+    }
+
+    return res.status(200).json({ ok: true, job });
+  } catch {
+    return res.status(500).json({ ok: false, error: "pick_failed" });
   }
 }

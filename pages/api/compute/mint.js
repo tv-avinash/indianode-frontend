@@ -1,181 +1,94 @@
 // pages/api/compute/mint.js
-import crypto from "crypto";
+// Body: { paymentId, product, minutes, email, promo }
+// Queues a job and emails the user a status link.
 
-function json(res, code, obj) {
-  res.status(code).setHeader("Content-Type", "application/json");
-  res.end(JSON.stringify(obj));
+const KV_URL = process.env.KV_REST_API_URL;
+const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const MAIL_FROM = process.env.MAIL_FROM || "Indianode <no-reply@indianode.com>";
+const BASE_URL = process.env.BASE_URL || "https://www.indianode.com";
+const RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID;
+const RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET;
+
+async function kv(command, ...args) {
+  const r = await fetch(KV_URL, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${KV_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ command, args }),
+  });
+  return r.json();
 }
 
-// ---- token helpers ----
-const TOKEN_SECRET =
-  process.env.ORDER_TOKEN_SECRET ||
-  process.env.NEXTAUTH_SECRET ||
-  "dev_secret_replace_me";
+const PRICE60 = { cpu2x4: 1, cpu4x8: 2, cpu8x16: 4, redis4: 1, redis8: 2, redis16: 3 };
 
-function b64urlEncode(obj) {
-  return Buffer.from(JSON.stringify(obj)).toString("base64url");
-}
-function b64urlDecode(str) {
-  return JSON.parse(Buffer.from(String(str), "base64url").toString("utf8"));
-}
-
-function sign(payload) {
-  const body = b64urlEncode(payload);
-  const sig = crypto.createHmac("sha256", TOKEN_SECRET).update(body).digest("base64url");
-  return `v1.${body}.${sig}`;
-}
-function verify(token) {
-  const parts = String(token || "").split(".");
-  if (parts.length !== 3 || parts[0] !== "v1") throw new Error("bad_token_format");
-  const body = parts[1];
-  const sig = parts[2];
-  const expected = crypto.createHmac("sha256", TOKEN_SECRET).update(body).digest("base64url");
-  if (sig !== expected) throw new Error("bad_token_sig");
-  const payload = b64urlDecode(body);
-  if (payload.exp && Date.now() / 1000 > Number(payload.exp)) throw new Error("token_expired");
-  return payload;
-}
-
-// ---- Upstash KV (REST) helpers ----
-const KV_URL = process.env.KV_REST_API_URL || "";
-const KV_TOKEN = process.env.KV_REST_API_TOKEN || "";
-async function kvCmd(pathParts, method = "GET", body) {
-  if (!KV_URL || !KV_TOKEN) throw new Error("kv_not_configured");
-  const url = `${KV_URL}/${pathParts.map(encodeURIComponent).join("/")}`;
-  const headers = { Authorization: `Bearer ${KV_TOKEN}` };
-  let opts = { method, headers };
-  if (body !== undefined) {
-    headers["Content-Type"] = "application/json";
-    opts.body = JSON.stringify(body);
-  }
-  const r = await fetch(url, opts);
-  const j = await r.json().catch(async () => ({ result: await r.text() }));
-  if (!r.ok) throw new Error(`kv_${pathParts[0]}_failed`);
-  return j;
-}
-
-// queue helpers (simple Redis list + per-job JSON string)
-const QKEY = "compute:queue";
-function jobKey(id) { return `compute:job:${id}`; }
-
-async function pushJob(job) {
-  // store job JSON as plain string
-  await kvCmd(["set", jobKey(job.id), JSON.stringify(job)], "POST");
-  await kvCmd(["lpush", QKEY, job.id], "POST");
-}
-
-async function getJob(id) {
-  const r = await kvCmd(["get", jobKey(id)]);
-  const s = r?.result;
-  if (!s) return null;
-  try { return JSON.parse(s); } catch { return null; }
-}
-
-async function setJob(id, job) {
-  await kvCmd(["set", jobKey(id), JSON.stringify(job)], "POST");
-}
-
-// ---- Razorpay helpers (optional) ----
-function hasRzpKeys() {
-  return !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
-}
-async function verifyPayment(paymentId) {
-  if (!hasRzpKeys()) return { ok: true, mode: "test" };
-
-  const auth = Buffer.from(
-    `${process.env.RAZORPAY_KEY_ID}:${process.env.RAZORPAY_KEY_SECRET}`
-  ).toString("base64");
-
+async function verifyPayment(paymentId, expectedAmountPaise) {
+  // Verify with Razorpay REST (no SDK)
+  const auth = Buffer.from(`${RAZORPAY_KEY_ID}:${RAZORPAY_KEY_SECRET}`).toString("base64");
   const r = await fetch(`https://api.razorpay.com/v1/payments/${paymentId}`, {
     headers: { Authorization: `Basic ${auth}` },
+    cache: "no-store",
   });
-  if (!r.ok) return { ok: false, error: "rzp_fetch_failed" };
+  if (!r.ok) return { ok: false, error: "razorpay_lookup_failed" };
   const p = await r.json();
-
-  if (p?.status !== "captured") {
-    return { ok: false, error: "payment_not_captured", details: p?.status };
+  if (p.status !== "captured") return { ok: false, error: "payment_not_captured" };
+  if (expectedAmountPaise && Number(p.amount) < expectedAmountPaise) {
+    return { ok: false, error: "amount_too_low" };
   }
   return { ok: true, payment: p };
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return json(res, 405, { error: "method_not_allowed" });
-
+  if (req.method !== "POST") return res.status(405).end();
   try {
-    const body = req.body || {};
+    const { paymentId, product, minutes, email = "", promo = "" } = await req.json?.() || req.body;
 
-    // ----- Redeem flow -----
-    if (body.redeem && body.token) {
-      let payload;
-      try { payload = verify(body.token); }
-      catch (e) { return json(res, 400, { error: e.message || "bad_token" }); }
+    if (!PRICE60[product]) return res.status(400).json({ ok: false, error: "invalid_product" });
+    const mins = Math.max(1, Number(minutes || 60));
+    const inr = Math.ceil((PRICE60[product] / 60) * mins);
+    const expectedPaise = Math.max(100, inr * 100); // ₹1 minimum
 
-      if (payload.kind !== "compute") {
-        return json(res, 400, { error: "wrong_token_kind" });
-      }
+    const v = await verifyPayment(paymentId, expectedPaise);
+    if (!v.ok) return res.status(400).json({ ok: false, error: v.error });
 
-      const id = `job_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
-      const now = Date.now();
-      const job = {
-        id,
-        kind: "compute",
-        sku: payload.product || "generic",
-        minutes: Math.max(1, Number(payload.minutes || 1)),
-        email: payload.email || "",
-        pay_id: payload.pay_id || "",
-        queued_at: now,
-        status: "queued",
-        progress: 0,
-        outputs: {},
-      };
-
-      await pushJob(job);
-
-      // optional email
-      if (process.env.RESEND_API_KEY && job.email) {
-        try {
-          await fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              from: process.env.RESEND_FROM || "Indianode <noreply@indianode.com>",
-              to: [job.email],
-              subject: "Indianode: compute job queued",
-              html: `<p>Your job <b>${id}</b> is queued.</p><p>SKU: <b>${job.sku}</b> • Minutes: <b>${job.minutes}</b></p>`,
-            }),
-          });
-        } catch {}
-      }
-
-      return json(res, 200, { ok: true, queued: true, id });
-    }
-
-    // ----- Mint flow -----
-    const { paymentId, product, minutes, email, promo } = body;
-    if (!paymentId || !product) return json(res, 400, { error: "bad_request" });
-
-    const ver = await verifyPayment(paymentId);
-    if (!ver.ok) return json(res, 400, { error: "payment_verify_failed", details: ver.error });
-
-    const nowSec = Math.floor(Date.now() / 1000);
-    const payload = {
-      v: 1,
-      kind: "compute",
+    const id = `job_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const job = {
+      id,
       product,
-      minutes: Math.max(1, Number(minutes || 1)),
+      minutes: mins,
       email: (email || "").trim(),
-      pay_id: paymentId,
-      iat: nowSec,
-      exp: nowSec + 7 * 24 * 3600, // token valid 7 days
-      promo: String(promo || "").trim(),
+      status: "queued",
+      queued_at: Date.now(),
+      payment_id: paymentId,
+      promo: (promo || "").trim().toUpperCase(),
+      provider: null,
+      public_host: null,
+      started_at: null,
+      finished_at: null,
+      logs: [],
     };
 
-    const token = sign(payload);
-    return json(res, 200, { token });
+    await kv("SET", `compute:job:${id}`, JSON.stringify(job), "EX", 60 * 60 * 24 * 7);
+    await kv("RPUSH", "compute:queue", id);
+
+    // Email user (queued)
+    if (RESEND_API_KEY && job.email) {
+      await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${RESEND_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: MAIL_FROM,
+          to: job.email,
+          subject: `Queued: ${product} • ${mins} min`,
+          text: `Your compute job has been queued.\n\nJob ID: ${id}\nCheck status: ${BASE_URL}/api/compute/status?id=${id}\n\nWe’ll email you again when it starts and when it completes.`,
+        }),
+      });
+    }
+
+    return res.status(200).json({ ok: true, queued: true, id });
   } catch (e) {
-    return json(res, 500, { error: "server_error", message: e?.message || String(e) });
+    return res.status(500).json({ ok: false, error: "mint_failed" });
   }
 }
