@@ -1,11 +1,30 @@
-export default async function handler(req, res) {
-  if (req.method !== "POST" && req.method !== "GET") {
-    res.setHeader("Allow", "GET, POST");
-    return res.status(405).json({ error: "method_not_allowed" });
-  }
-  const token = req.method === "POST" ? req.body?.token : req.query?.token;
-  if (!token) return res.status(400).json({ error: "missing_token" });
+// pages/api/compute/redeem.js
+import { kv } from "@vercel/kv";
+import crypto from "crypto";
 
-  // TODO: verify token, enqueue your compute job, etc.
-  return res.status(200).json({ ok: true, queued: true });
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ ok: false, error: "method_not_allowed" });
+  }
+
+  // Expect: { token, product, minutes, email }
+  const { token, product, minutes, email } = req.body || {};
+
+  // TODO: validate token signature/expiry/payment here.
+  if (!token) return res.status(400).json({ ok: false, error: "missing_token" });
+
+  const id = `job_${Date.now()}_${crypto.randomBytes(3).toString("hex")}`;
+  const job = {
+    id,
+    kind: "compute",
+    product: (product || "generic").toString(),
+    minutes: Number(minutes || 60),
+    token: token.toString(),
+    email: (email || "").trim(),
+    enqueuedAt: Date.now(),
+  };
+
+  // Queue tail -> pop head (FIFO)
+  await kv.rpush("compute:queue", JSON.stringify(job));
+  return res.json({ ok: true, queued: true, id });
 }
