@@ -1,9 +1,9 @@
-// pages/compute.jsx
 import { useEffect, useMemo, useState } from "react";
 import Head from "next/head";
+import Link from "next/link";
 import Script from "next/script";
 
-// safe GA
+// GA helper (safe if gtag isn't ready)
 const gaEvent = (name, params = {}) => {
   try {
     if (typeof window !== "undefined" && window.gtag) {
@@ -12,16 +12,16 @@ const gaEvent = (name, params = {}) => {
   } catch {}
 };
 
-// tiny modal
-function Modal({ open, onClose, title = "Next steps", children }) {
+// Simple modal
+function Modal({ open, onClose, title, children }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-2xl mx-3 rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between px-5 py-3 border-b">
-          <h3 className="font-semibold">{title}</h3>
-          <button onClick={onClose} className="rounded p-2 hover:bg-gray-100">✕</button>
+      <div className="relative w-full max-w-2xl mx-4 rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h3 className="font-semibold text-lg">{title || "Next steps"}</h3>
+          <button onClick={onClose} className="rounded-lg p-2 hover:bg-gray-100">✕</button>
         </div>
         <div className="p-5">{children}</div>
       </div>
@@ -30,221 +30,177 @@ function Modal({ open, onClose, title = "Next steps", children }) {
 }
 
 export default function Compute() {
-  // status + fx
+  // top-level status
   const [status, setStatus] = useState("checking...");
-  const [fx, setFx] = useState(0.012);
   useEffect(() => {
-    fetch("/api/status").then(r=>r.json()).then(j=>setStatus(j.status||"offline")).catch(()=>setStatus("offline"));
-    fetch("/api/fx").then(r=>r.json()).then(j=>setFx(Number(j.rate)||0.012)).catch(()=>{});
+    fetch("/api/status")
+      .then((r) => r.json())
+      .then((j) => setStatus(j.status || "offline"))
+      .catch(() => setStatus("offline"));
   }, []);
   const busy = status !== "available";
 
-  const SHOW_AKASH = String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
-  const DEPLOYER_BASE = process.env.NEXT_PUBLIC_DEPLOYER_BASE || "";
-
   // buyer inputs
   const [email, setEmail] = useState("");
-  const [minutes, setMinutes] = useState(60);
+  const [minutes, setMinutes] = useState(1);
   const [promo, setPromo] = useState("");
 
-  // pricing plans (edit INR base/60min to taste)
-  const cpuPlans = [
-    { key: "cpu2", title: "CPU Worker • 2 vCPU • 4 Gi", cpu: 2, mem: "4Gi", base60: 60 },
-    { key: "cpu4", title: "CPU Worker • 4 vCPU • 8 Gi", cpu: 4, mem: "8Gi", base60: 120 },
-    { key: "cpu8", title: "CPU Worker • 8 vCPU • 16 Gi", cpu: 8, mem: "16Gi", base60: 240 },
-  ];
-  const redisPlans = [
-    { key: "redis4",  title: "Redis Cache • 4 Gi",  mem: "4Gi",  base60: 49 },
-    { key: "redis8",  title: "Redis Cache • 8 Gi",  mem: "8Gi",  base60: 89 },
-    { key: "redis16", title: "Redis Cache • 16 Gi", mem: "16Gi", base60: 159 },
-  ];
-
-  const allPlans = useMemo(() => [...cpuPlans, ...redisPlans], []);
-  const priceMap = useMemo(() => Object.fromEntries(allPlans.map(p => [p.key, p.base60])), [allPlans]);
-
-  // promo (TRY / TRY10 => ₹5 off total)
+  // pricing helpers
   const PROMO_OFF_INR = 5;
   const promoCode = (promo || "").trim().toUpperCase();
   const promoActive = promoCode === "TRY" || promoCode === "TRY10";
 
-  const inrFor = (key, mins) => {
-    const base = priceMap[key] || 0;
-    const m = Math.max(1, Number(mins || 60));
-    let total = Math.ceil((base / 60) * m);
-    if (promoActive) total = Math.max(1, total - PROMO_OFF_INR);
-    return total;
+  // plans (price60 = base ₹ per 60 minutes)
+  const plans = useMemo(
+    () => [
+      { key: "cpu2x4", title: "CPU Worker • 2 vCPU • 4 Gi", price60: 60, cpu: 2, memGi: 4 },
+      { key: "cpu4x8", title: "CPU Worker • 4 vCPU • 8 Gi", price60: 120, cpu: 4, memGi: 8 },
+      { key: "cpu8x16", title: "CPU Worker • 8 vCPU • 16 Gi", price60: 240, cpu: 8, memGi: 16 },
+      { key: "redis4", title: "Redis Cache • 4 Gi", price60: 49, cpu: 1, memGi: 4 },
+      { key: "redis8", title: "Redis Cache • 8 Gi", price60: 89, cpu: 2, memGi: 8 },
+      { key: "redis16", title: "Redis Cache • 16 Gi", price60: 159, cpu: 2, memGi: 16 },
+    ],
+    []
+  );
+
+  const priceInrFor = (p) => {
+    const m = Math.max(1, Number(minutes || 1));
+    let inr = Math.ceil((p.price60 / 60) * m);
+    if (promoActive) inr = Math.max(1, inr - PROMO_OFF_INR);
+    return inr;
   };
-  const toUSD = (inr) => Math.round((inr * fx + Number.EPSILON) * 100) / 100;
 
-  // SDL makers (locked to org=indianode)
-  const providerAttrKey = "org";
-  const providerAttrVal = "indianode";
-
-  const makeCpuSDL = (cpu, memGi) => `version: "2.0"
+  // SDL helpers (locked to your org)
+  const ATTR_KEY = "org";
+  const ATTR_VAL = "indianode";
+  const sdlFor = (p) => {
+    const isRedis = p.key.startsWith("redis");
+    return `version: "2.0"
 services:
-  worker:
-    image: ubuntu:22.04
-    command: ["bash","-lc","sleep infinity"]
+  app:
+    image: ${isRedis ? "redis:7-alpine" : "ubuntu:22.04"}
+    ${isRedis ? "" : `command: ["bash","-lc","sleep infinity"]`}
     resources:
-      cpu: { units: ${cpu} }
-      memory: { size: ${memGi} }
+      cpu: { units: ${p.cpu} }
+      memory: { size: ${p.memGi}Gi }
       storage:
-        - size: 10Gi
+        - size: 2Gi
 profiles:
   compute:
-    worker: {}
+    app: {}
   placement:
-    indianode:
+    anywhere:
       attributes:
-        ${providerAttrKey}: "${providerAttrVal}"
+        ${ATTR_KEY}: ${ATTR_VAL}
       pricing:
-        worker:
+        app:
           denom: uakt
-          amount: 100
+          amount: 50
 deployment:
-  worker:
-    indianode:
-      profile: worker
+  app:
+    anywhere:
+      profile: app
       count: 1
 `;
-
-  const makeRedisSDL = (memGi) => `version: "2.0"
-services:
-  redis:
-    image: redis:7
-    command: ["redis-server","--appendonly","no","--maxmemory","${memGi.toLowerCase()}","--maxmemory-policy","allkeys-lru"]
-    resources:
-      cpu: { units: 1 }
-      memory: { size: ${memGi} }
-      storage:
-        - size: 5Gi
-    expose:
-      - port: 6379
-        as: 6379
-        to:
-          - global: true
-profiles:
-  compute:
-    redis: {}
-  placement:
-    indianode:
-      attributes:
-        ${providerAttrKey}: "${providerAttrVal}"
-      pricing:
-        redis:
-          denom: uakt
-          amount: 90
-deployment:
-  redis:
-    indianode:
-      profile: redis
-      count: 1
-`;
-
-  // helpers: download/copy SDL
-  const download = (name, text) => {
-    const blob = new Blob([text], { type: "text/yaml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = name; a.click();
-    URL.revokeObjectURL(url);
   };
-  const copyText = async (t) => { try { await navigator.clipboard.writeText(t); } catch {} };
 
-  // token modal
+  // Modal (post-payment)
   const [mintOpen, setMintOpen] = useState(false);
-  const [cmd, setCmd] = useState("");
-  const [tokenOnly, setTokenOnly] = useState("");
+  const [mintCmd, setMintCmd] = useState("");
+  const [mintToken, setMintToken] = useState("");
+  const DEPLOYER_BASE = process.env.NEXT_PUBLIC_DEPLOYER_BASE || "";
 
-  // build run command per product
-  const buildRunCmd = (productKey, token) => {
-    if (!DEPLOYER_BASE) return "missing_env_DEPLOYER_BASE";
-    // choose script path by product
-    const isRedis = productKey.startsWith("redis");
-    const path = isRedis ? "/redis/run.sh" : "/compute/run.sh";
-    return `curl -fsSL ${DEPLOYER_BASE}${path} | ORDER_TOKEN='${token}' bash`;
-  };
+  const buildRunCommand = (tok) =>
+    DEPLOYER_BASE
+      ? `curl -fsSL ${DEPLOYER_BASE}/compute/run.sh | ORDER_TOKEN='${tok}' bash`
+      : "missing_env_DEPLOYER_BASE";
 
-  // --- payments / minting ---
-  async function createOrder({ product, minutes, email, promo }) {
-    const r = await fetch("/api/order", {
+  // Payments
+  const [loading, setLoading] = useState(false);
+
+  async function createOrder({ product }) {
+    const r = await fetch("/api/compute/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ product, minutes, userEmail: email, promo }),
+      body: JSON.stringify({
+        product,
+        minutes: Number(minutes),
+        userEmail: (email || "").trim(),
+        promo: promoCode,
+      }),
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j?.error || "order_failed");
-    return j; // { id, amount, currency }
+    return j;
   }
 
-  async function mintToken({ paymentId, product, minutes, email, promo }) {
-    const payload = { paymentId, product, minutes: Number(minutes), email: (email||"").trim(), promo: (promo||"").trim() };
-    // Try generic compute endpoint, fall back to gpu/mint to keep compatibility
-    const paths = ["/api/compute/mint", "/api/gpu/mint", "/api/mint"];
-    for (const p of paths) {
-      try {
-        const r = await fetch(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
-        if (r.ok) return await r.json(); // { token }
-      } catch {}
-    }
-    throw new Error("token_mint_failed");
+  async function mintToken({ paymentId, product }) {
+    const r = await fetch("/api/compute/mint", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        paymentId,
+        product,
+        minutes: Number(minutes),
+        email: (email || "").trim(),
+        promo: promoCode,
+      }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j?.error || "mint_failed");
+    return j; // { token }
   }
 
-  const [loading, setLoading] = useState(false);
-
-  async function payRazorpay(product, displayName) {
+  async function payWithRazorpay(p) {
     try {
       setLoading(true);
-      const order = await createOrder({ product, minutes, email, promo });
+      const order = await createOrder({ product: p.key });
 
-      const valueInr = Number(((order.amount || 0) / 100).toFixed(2));
+      // GA
       gaEvent("begin_checkout", {
-        value: valueInr,
+        value: Number((order.amount || 0) / 100),
         currency: order.currency || "INR",
-        coupon: promoCode || undefined,
-        items: [{ item_id: product, item_name: displayName, item_category: "compute", quantity: 1, price: valueInr }],
+        items: [{ item_id: p.key, item_name: p.title, item_category: "compute" }],
         minutes: Number(minutes),
         payment_method: "razorpay",
       });
 
-      const rzp = new window.Razorpay({
+      const rz = new window.Razorpay({
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_xxxxxx",
         amount: order.amount,
         currency: order.currency,
         order_id: order.id,
-        name: "Indianode Cloud",
-        description: `${displayName} (${minutes} min)`,
-        prefill: (email || "").trim() ? { email: (email || "").trim() } : undefined,
-        notes: { product, minutes: String(minutes), email, promo: promoCode },
-        theme: { color: "#111827" },
+        name: "Indianode Compute",
+        description: `${p.title} (${minutes} min)`,
+        prefill: email ? { email } : undefined,
+        notes: { product: p.key, minutes: String(minutes), email },
         handler: async (resp) => {
           try {
-            const res = await mintToken({ paymentId: resp.razorpay_payment_id, product, minutes, email, promo });
-            const tok = res?.token || "";
+            const minted = await mintToken({ paymentId: resp.razorpay_payment_id, product: p.key });
+            const tok = minted?.token;
             if (!tok) throw new Error("no_token");
-            const c = buildRunCmd(product, tok);
-            setTokenOnly(tok);
-            setCmd(c);
+            setMintToken(tok);
+            setMintCmd(buildRunCommand(tok));
             setMintOpen(true);
 
             gaEvent("purchase", {
               transaction_id: resp.razorpay_payment_id,
-              value: valueInr,
+              value: Number((order.amount || 0) / 100),
               currency: order.currency || "INR",
-              coupon: promoCode || undefined,
-              items: [{ item_id: product, item_name: displayName, item_category: "compute", quantity: 1, price: valueInr }],
+              items: [{ item_id: p.key, item_name: p.title, item_category: "compute" }],
               minutes: Number(minutes),
               payment_method: "razorpay",
             });
           } catch (e) {
-            alert("Could not mint ORDER_TOKEN (" + (e?.message || "token_mint_failed") + ")");
+            alert(e.message || "token_mint_failed");
           }
         },
       });
-      rzp.on("payment.failed", (e) => alert(e?.error?.description || "Payment failed"));
-      rzp.open();
+
+      rz.on("payment.failed", (e) => alert(e?.error?.description || "Payment failed"));
+      rz.open();
     } catch (e) {
-      alert(e?.message || "Something went wrong");
+      alert(e.message || "Something went wrong");
     } finally {
       setLoading(false);
     }
@@ -254,204 +210,193 @@ deployment:
     <>
       <Head>
         <title>Indianode — CPU & RAM Services</title>
-        <meta name="description" content="Monetize idle CPU & memory. CPU Workers and Redis RAM cache — use via Akash SDLs or token-based command." />
+        <meta name="description" content="Use Akash-locked SDLs or pay for one-time CPU/RAM jobs. Monetize idle cores and memory." />
         <link rel="canonical" href="https://www.indianode.com/compute" />
       </Head>
+
       <Script src="https://checkout.razorpay.com/v1/checkout.js" />
 
-      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white text-gray-900">
-        {/* Top bar */}
-        <header className="px-5 py-3 bg-gray-900 text-white">
-          <div className="max-w-6xl mx-auto flex items-center justify-between">
-            <div className="font-bold">Indianode — CPU & RAM</div>
-            <div className={`text-xs px-2 py-1 rounded ${busy ? "bg-amber-500" : "bg-emerald-600"}`}>
-              {busy ? "GPU busy" : "GPU available"}
-            </div>
+      <div className="min-h-screen bg-gray-50 text-gray-900">
+        <header className="px-6 py-4 bg-gray-900 text-white flex items-center justify-between">
+          <div className="font-bold text-lg">Indianode — CPU & RAM</div>
+          <div
+            className={`text-xs px-2 py-1 rounded ${busy ? "bg-amber-500" : "bg-emerald-600"}`}
+            title="GPU status from /api/status"
+          >
+            {busy ? "GPU busy" : "GPU available"}
           </div>
         </header>
 
-        {/* Single-screen layout (compact) */}
-        <main className="max-w-6xl mx-auto px-5 pt-4 pb-6">
-          {/* Compact hero row */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-gray-700">
-              Use our <b>Akash-locked SDLs</b> or pay to get a one-time <b>ORDER_TOKEN</b> and run a safe command from anywhere.
+        <main className="max-w-6xl mx-auto p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div className="text-sm">
+              Use our <b>Akash-locked SDLs</b> or pay to get a <b>one-time token</b> & run via our script.
             </div>
-            <a href="/storage" className="rounded-full bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-sm">Need same-host NVMe? Storage →</a>
+            <Link href="/storage" className="inline-flex items-center bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-3 py-2">
+              Need same-host NVMe? Storage →
+            </Link>
           </div>
 
-          {/* Inputs */}
-          <div className="mt-3 bg-white/70 border border-gray-100 rounded-2xl p-3">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <label className="flex items-center gap-2">
-                <span className="text-xs font-semibold w-24">Email</span>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e)=>setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="flex-1 border rounded-lg px-3 py-2 text-sm"
-                />
-              </label>
-              <label className="flex items-center gap-2">
-                <span className="text-xs font-semibold w-24">Minutes</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="480"
-                  value={minutes}
-                  onChange={(e)=>setMinutes(Math.max(1, Number(e.target.value||1)))}
-                  className="flex-1 border rounded-lg px-3 py-2 text-sm"
-                />
-              </label>
-              <label className="flex items-center gap-2">
-                <span className="text-xs font-semibold w-24">Promo</span>
-                <input
-                  value={promo}
-                  onChange={(e)=>setPromo(e.target.value)}
-                  placeholder="TRY / TRY10"
-                  className="flex-1 border rounded-lg px-3 py-2 text-sm"
-                />
-              </label>
-            </div>
+          {/* controls */}
+          <div className="grid md:grid-cols-3 gap-3 mb-6">
+            <input
+              type="email"
+              placeholder="you@example.com"
+              className="border rounded-lg px-3 py-2"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <input
+              type="number"
+              min="1"
+              value={minutes}
+              className="border rounded-lg px-3 py-2"
+              onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
+            />
+            <input
+              placeholder="TRY / TRY10"
+              className="border rounded-lg px-3 py-2"
+              value={promo}
+              onChange={(e) => setPromo(e.target.value)}
+            />
           </div>
 
-          {/* Two compact rows: CPU & Redis (fits most laptops without scroll) */}
-          <section className="mt-4">
-            <h2 className="text-sm font-semibold text-gray-800 mb-2">CPU Workers</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {cpuPlans.map(p => {
-                const inr = inrFor(p.key, minutes);
-                const usd = toUSD(inr);
-                const sdl = makeCpuSDL(p.cpu, p.mem);
-                return (
-                  <div key={p.key} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm flex flex-col">
-                    <div className="text-base font-bold">{p.title}</div>
-                    <div className="text-xs text-emerald-700 mt-1">lock: {providerAttrKey}={providerAttrVal}</div>
-                    <div className="text-sm mt-2"><b>Price:</b> ₹{inr} / ${usd.toFixed(2)} <span className="text-xs text-gray-500">(base ₹{p.base60}/60m)</span></div>
-                    {promoActive && (
-                      <div className="text-[11px] text-green-700 mt-1">Includes promo −₹{PROMO_OFF_INR} (~${toUSD(PROMO_OFF_INR).toFixed(2)})</div>
-                    )}
+          <h2 className="text-lg font-semibold mb-2">CPU Workers</h2>
+          <div className="grid md:grid-cols-3 gap-5">
+            {plans.slice(0, 3).map((p) => (
+              <div key={p.key} className="bg-white rounded-2xl shadow p-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold">{p.title}</h3>
+                  <span className="text-[11px] text-emerald-700">lock: {ATTR_KEY}={ATTR_VAL}</span>
+                </div>
+                <div className="mt-2 text-sm text-gray-700">
+                  Price: ₹{priceInrFor(p)}{" "}
+                  <span className="text-gray-500"> (base ₹{p.price60}/60m)</span>
+                </div>
 
-                    <div className="mt-3 grid gap-2">
-                      {/* Pay & get command */}
-                      <button
-                        disabled={loading}
-                        onClick={()=>payRazorpay(p.key, p.title)}
-                        className={`text-white px-4 py-2 rounded-xl text-sm ${loading ? "bg-gray-400" : "bg-indigo-600 hover:bg-indigo-700"}`}
-                      >
-                        Pay ₹{inr} • Razorpay (INR)
-                      </button>
+                <button
+                  className="w-full mt-4 bg-slate-400/60 text-white rounded-xl px-3 py-2 hover:bg-slate-500 disabled:opacity-60"
+                  onClick={() => payWithRazorpay(p)}
+                  disabled={loading}
+                >
+                  Pay ₹{priceInrFor(p)} • Razorpay (INR)
+                </button>
 
-                      {/* Akash SDLs */}
-                      {SHOW_AKASH && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            onClick={()=>download(`${p.key}.yaml`, sdl)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-3 py-2 text-sm"
-                          >
-                            Deploy on Akash (SDL)
-                          </button>
-                          <button
-                            onClick={()=>copyText(sdl)}
-                            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl px-3 py-2 text-sm"
-                          >
-                            Copy SDL
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="mt-5">
-            <h2 className="text-sm font-semibold text-gray-800 mb-2">RAM Cache (Redis)</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              {redisPlans.map(p => {
-                const inr = inrFor(p.key, minutes);
-                const usd = toUSD(inr);
-                const mem = p.mem;
-                const sdl = makeRedisSDL(mem);
-                return (
-                  <div key={p.key} className="bg-white rounded-2xl border border-gray-100 p-4 shadow-sm flex flex-col">
-                    <div className="text-base font-bold">{p.title}</div>
-                    <div className="text-xs text-emerald-700 mt-1">lock: {providerAttrKey}={providerAttrVal}</div>
-                    <div className="text-sm mt-2"><b>Price:</b> ₹{inr} / ${usd.toFixed(2)} <span className="text-xs text-gray-500">(base ₹{p.base60}/60m)</span></div>
-                    {promoActive && (
-                      <div className="text-[11px] text-green-700 mt-1">Includes promo −₹{PROMO_OFF_INR} (~${toUSD(PROMO_OFF_INR).toFixed(2)})</div>
-                    )}
-
-                    <div className="mt-3 grid gap-2">
-                      <button
-                        disabled={loading}
-                        onClick={()=>payRazorpay(p.key, p.title)}
-                        className={`text-white px-4 py-2 rounded-xl text-sm ${loading ? "bg-gray-400" : "bg-indigo-600 hover:bg-indigo-700"}`}
-                      >
-                        Pay ₹{inr} • Razorpay (INR)
-                      </button>
-
-                      {SHOW_AKASH && (
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            onClick={()=>download(`${p.key}.yaml`, sdl)}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-3 py-2 text-sm"
-                          >
-                            Deploy on Akash (SDL)
-                          </button>
-                          <button
-                            onClick={()=>copyText(sdl)}
-                            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl px-3 py-2 text-sm"
-                          >
-                            Copy SDL
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-
-          {/* tiny usage note */}
-          <div className="mt-4 text-[11px] text-gray-600 text-center">
-            Paying here mints a one-time ORDER_TOKEN. You’ll get a single command to redeem it with our backend.
-            For Akash users, the SDLs are provider-locked so the leases land on Indianode.
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <a
+                    className="text-center bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-3 py-2"
+                    download={`${p.key}.yaml`}
+                    href={`data:text/yaml;charset=utf-8,${encodeURIComponent(sdlFor(p))}`}
+                    onClick={() => gaEvent("select_content", { item_id: `dl_sdl_${p.key}` })}
+                  >
+                    Deploy on Akash (SDL)
+                  </a>
+                  <button
+                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl px-3 py-2"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(sdlFor(p));
+                      } catch {}
+                    }}
+                  >
+                    Copy SDL
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
+
+          <h2 className="text-lg font-semibold mt-8 mb-2">RAM Cache (Redis)</h2>
+          <div className="grid md:grid-cols-3 gap-5">
+            {plans.slice(3).map((p) => (
+              <div key={p.key} className="bg-white rounded-2xl shadow p-5">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold">{p.title}</h3>
+                  <span className="text-[11px] text-emerald-700">lock: {ATTR_KEY}={ATTR_VAL}</span>
+                </div>
+                <div className="mt-2 text-sm text-gray-700">
+                  Price: ₹{priceInrFor(p)}{" "}
+                  <span className="text-gray-500"> (base ₹{p.price60}/60m)</span>
+                </div>
+
+                <button
+                  className="w-full mt-4 bg-slate-400/60 text-white rounded-xl px-3 py-2 hover:bg-slate-500 disabled:opacity-60"
+                  onClick={() => payWithRazorpay(p)}
+                  disabled={loading}
+                >
+                  Pay ₹{priceInrFor(p)} • Razorpay (INR)
+                </button>
+
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <a
+                    className="text-center bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-3 py-2"
+                    download={`${p.key}.yaml`}
+                    href={`data:text/yaml;charset=utf-8,${encodeURIComponent(sdlFor(p))}`}
+                    onClick={() => gaEvent("select_content", { item_id: `dl_sdl_${p.key}` })}
+                  >
+                    Deploy on Akash (SDL)
+                  </a>
+                  <button
+                    className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl px-3 py-2"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(sdlFor(p));
+                      } catch {}
+                    }}
+                  >
+                    Copy SDL
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="mt-6 text-center text-xs text-gray-600">
+            You’ll pay AKT when using the SDLs (marketplace). The card payment is only for one-time jobs via our script.
+          </p>
         </main>
 
-        <footer className="px-5 py-3 text-center text-[12px] text-gray-600 border-t">
-          Contact:{" "}
-          <a href="mailto:tvavinash@gmail.com" className="text-blue-600 hover:underline">tvavinash@gmail.com</a>{" "}
-          •{" "}
-          <a href="tel:+919902818004" className="text-blue-600 hover:underline">+91 99028 18004</a>{" "}
-          • © {new Date().getFullYear()} Indianode
+        <footer className="px-6 py-3 text-center text-xs text-gray-500">
+          © {new Date().getFullYear()} Indianode •{" "}
+          <Link href="/" className="text-blue-600 hover:underline">Home</Link>
         </footer>
       </div>
 
-      {/* Mint modal */}
-      <Modal open={!!mintOpen} onClose={()=>setMintOpen(false)} title="Payment verified — run this command">
+      {/* Post-payment modal */}
+      <Modal open={mintOpen} onClose={() => setMintOpen(false)} title="Payment verified — next steps">
+        <p className="text-sm text-gray-700">
+          A one-time <b>ORDER_TOKEN</b> was minted. Run this command from any machine to redeem it and queue your job.
+          <b> Do not</b> run it on your Akash host VM.
+        </p>
+
         {!DEPLOYER_BASE && (
-          <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
-            Set <code className="font-mono">NEXT_PUBLIC_DEPLOYER_BASE</code> in Vercel to show the command.
+          <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+            Set <code className="font-mono">NEXT_PUBLIC_DEPLOYER_BASE</code> in Vercel.
           </div>
         )}
-        <div className="bg-gray-900 text-gray-100 rounded-xl p-3 font-mono text-xs overflow-x-auto">{cmd || "…"}</div>
-        <div className="flex gap-2 mt-3">
-          <button className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-xl" onClick={()=>navigator.clipboard.writeText(cmd)}>Copy command</button>
-          <button className="bg-gray-200 hover:bg-gray-300 text-gray-900 px-4 py-2 rounded-xl" onClick={()=>navigator.clipboard.writeText(tokenOnly)}>Copy token only</button>
+
+        <div className="mt-3 bg-gray-900 text-gray-100 rounded-xl p-3 font-mono text-xs overflow-x-auto">
+          {mintCmd || "…"}
         </div>
-        <details className="text-xs text-gray-600 mt-2">
-          <summary className="cursor-pointer font-semibold">What happens next?</summary>
-          <ol className="list-decimal pl-5 mt-1 space-y-1">
-            <li>The command redeems your ORDER_TOKEN with our backend and queues the job.</li>
-            <li>Runtime equals the minutes you purchased; the process is stopped automatically when time is up.</li>
-            <li>Do <b>not</b> run it on your Akash host VM—use any other machine or a throwaway instance.</li>
-          </ol>
-        </details>
+
+        <div className="mt-3 flex gap-2">
+          <button
+            className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-xl"
+            onClick={async () => {
+              try { await navigator.clipboard.writeText(mintCmd); } catch {}
+            }}
+          >
+            Copy command
+          </button>
+          <button
+            className="bg-gray-200 hover:bg-gray-300 text-gray-900 px-4 py-2 rounded-xl"
+            onClick={async () => {
+              try { await navigator.clipboard.writeText(mintToken); } catch {}
+            }}
+          >
+            Copy token only
+          </button>
+        </div>
       </Modal>
     </>
   );
