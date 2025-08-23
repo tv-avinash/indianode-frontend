@@ -1,637 +1,175 @@
-import { useEffect, useMemo, useState } from "react";
+// pages/storage.jsx
+import { useEffect, useState } from "react";
 import Head from "next/head";
+import Script from "next/script";
+import SiteChrome from "../components/SiteChrome";
 
-const gaEvent = (name, params = {}) => {
-  try {
-    if (typeof window !== "undefined" && window.gtag) {
-      window.gtag("event", name, params);
-    }
-  } catch {}
-};
-
-export default function StoragePage() {
-  // ----- Feature toggles -----
-  const SHOW_AKASH = String(process.env.NEXT_PUBLIC_SHOW_AKASH || "1") === "1";
-  const SALES_OPEN = String(process.env.NEXT_PUBLIC_SALES_OPEN || "1") !== "0";
-  const ALLOW_PAY_WHEN_BUSY =
-    String(process.env.NEXT_PUBLIC_ALLOW_PAY_WHEN_BUSY || "0") === "1";
-  // Hide monthly card links by default to avoid confusion
-  const SHOW_CARD_LINKS =
-    String(process.env.NEXT_PUBLIC_SHOW_CARD_LINKS || "0") === "1";
-
-  // ----- Provider lock -----
-  const ATTR_KEY = process.env.NEXT_PUBLIC_PROVIDER_ATTR_KEY || "org";
-  const ATTR_VAL = process.env.NEXT_PUBLIC_PROVIDER_ATTR_VALUE || "indianode";
-  const PROVIDER_ADDR =
-    process.env.NEXT_PUBLIC_PROVIDER_ADDR || "akash1YOURADDRESSHERE";
-
-  // ----- Helpers -----
-  const cleanRzp = (u) =>
-    (u || "")
-      .trim()
-      .replace(/^https?:\/\/rzp\.io\/(https?:\/\/rzp\.io\/)+/i, "https://rzp.io/");
-
-  // (Optional) monthly subscription links – hidden unless SHOW_CARD_LINKS=1
-  const LINKS = {
-    g200: cleanRzp(process.env.NEXT_PUBLIC_RZP_200_MULTI || ""),
-    g500: cleanRzp(process.env.NEXT_PUBLIC_RZP_500_MULTI || ""),
-    g1tb: cleanRzp(process.env.NEXT_PUBLIC_RZP_1TB_MULTI || ""),
-  };
-
-  // Preload links (legacy single var supported)
-  const LEGACY_PRELOAD_LINK = cleanRzp(
-    process.env.NEXT_PUBLIC_RZP_PRELOAD_MULTI || ""
-  );
-  const LINKS_PRELOAD = {
-    "200Gi": cleanRzp(
-      process.env.NEXT_PUBLIC_RZP_PRELOAD_200 || LEGACY_PRELOAD_LINK
-    ),
-    "500Gi": cleanRzp(
-      process.env.NEXT_PUBLIC_RZP_PRELOAD_500 || LEGACY_PRELOAD_LINK
-    ),
-    "1TiB": cleanRzp(
-      process.env.NEXT_PUBLIC_RZP_PRELOAD_1TB || LEGACY_PRELOAD_LINK
-    ),
-  };
-
-  // ----- Status + FX -----
-  const [status, setStatus] = useState("checking...");
-  const [fx, setFx] = useState(
-    Number(
-      process.env.NEXT_PUBLIC_USD_INR
-        ? 1 / Number(process.env.NEXT_PUBLIC_USD_INR)
-        : 0.0116
-    )
-  );
-
-  useEffect(() => {
-    fetch("/api/fx")
-      .then((r) => r.json())
-      .then((j) => j?.rate && setFx(Number(j.rate)))
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/status")
-      .then((r) => r.json())
-      .then((j) => setStatus(j?.status || "offline"))
-      .catch(() => setStatus("offline"));
-  }, []);
-  const busy = status !== "available";
-  const canSell = SALES_OPEN && (ALLOW_PAY_WHEN_BUSY || !busy);
-
-  // ----- Monthly storage prices (INR) with optional env overrides -----
-  const PRICE = useMemo(
-    () => ({
-      g200: Number(process.env.NEXT_PUBLIC_PRICE_200_INR || 399),  // 200 Gi
-      g500: Number(process.env.NEXT_PUBLIC_PRICE_500_INR || 799),  // 500 Gi
-      g1tb: Number(process.env.NEXT_PUBLIC_PRICE_1TB_INR || 1499), // 1 TiB
-    }),
-    []
-  );
-
-  // ----- Preload one-time prices (INR) with legacy fallback -----
-  const LEGACY_PRELOAD_PRICE = Number(
-    process.env.NEXT_PUBLIC_PRELOAD_INR || 0
-  );
-  const PRELOAD_PRICE = useMemo(
-    () => ({
-      "200Gi": Number(
-        process.env.NEXT_PUBLIC_PRELOAD_200_INR ||
-          LEGACY_PRELOAD_PRICE ||
-          499
-      ),
-      "500Gi": Number(
-        process.env.NEXT_PUBLIC_PRELOAD_500_INR ||
-          LEGACY_PRELOAD_PRICE ||
-          799
-      ),
-      "1TiB": Number(
-        process.env.NEXT_PUBLIC_PRELOAD_1TB_INR ||
-          LEGACY_PRELOAD_PRICE ||
-          1199
-      ),
-    }),
-    [LEGACY_PRELOAD_PRICE]
-  );
-
-  const toUSD = (inr) =>
-    Math.round(((inr || 0) * fx + Number.EPSILON) * 100) / 100;
-
-  const plans = [
-    { key: "g200", title: "200 Gi", price: PRICE.g200, size: "200Gi" },
-    { key: "g500", title: "500 Gi", price: PRICE.g500, size: "500Gi" },
-    { key: "g1tb", title: "1 TiB", price: PRICE.g1tb, size: "1TiB" },
-  ];
-
-  // Preload script URL
-  const base = process.env.NEXT_PUBLIC_DEPLOYER_BASE || "";
-  const origin =
-    typeof window !== "undefined" && window.location?.origin
-      ? window.location.origin
-      : "https://www.indianode.com";
-  const preloadUrl = base
-    ? `${base.replace(/\/+$/, "")}/storage/preload.sh`
-    : `${origin}/downloads/scripts/preload.sh`;
-
-  // ----- Locked SDL generator -----
-  function buildLockedSDL(sizeStr) {
-    return `version: "2.0"
-
-services:
-  app:
-    image: nvidia/cuda:12.4.1-runtime-ubuntu22.04
-    command: ["bash","-lc","sleep infinity"]
-    params:
-      storage:
-        data:
-          mount: /data
-    expose:
-      - port: 8080
-        as: 80
-        to:
-          - global: true
-
-profiles:
-  compute:
-    app:
-      resources:
-        cpu:
-          units: 1
-        memory:
-          size: 4Gi
-        gpu:
-          units: 1
-          attributes:
-            vendor:
-              nvidia:
-                - model: rtx3090
-        storage:
-          - size: 10Gi
-          - name: data
-            size: ${sizeStr}
-            attributes:
-              persistent: true
-              class: beta3
-  placement:
-    indianode:
-      attributes:
-        ${ATTR_KEY}: ${ATTR_VAL}
-      pricing:
-        app:
-          denom: uakt
-          amount: 800
-
-deployment:
-  app:
-    indianode:
-      profile: app
-      count: 1
-`;
-  }
-
-  function downloadSDL(sizeStr) {
-    const yml = buildLockedSDL(sizeStr);
-    const blob = new Blob([yml], { type: "text/yaml" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `indianode-${sizeStr}.yaml`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    gaEvent("select_content", { content_type: "download_sdl", item_id: sizeStr });
-  }
-
-  async function copySDL(sizeStr) {
-    try {
-      await navigator.clipboard.writeText(buildLockedSDL(sizeStr));
-      alert("SDL copied");
-      gaEvent("select_content", { content_type: "copy_sdl", item_id: sizeStr });
-    } catch {
-      alert("Could not copy. Please use Download.");
-    }
-  }
-
-  // ----- Preload modal (ORDER_TOKEN) -----
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalPlan, setModalPlan] = useState("200Gi");
-  const [email, setEmail] = useState("");
-  const [ref, setRef] = useState(""); // Razorpay payment id (pay_...)
-  const [token, setToken] = useState("");
-  const [tokenMsg, setTokenMsg] = useState("");
-  const [loadingToken, setLoadingToken] = useState(false);
-
-  function openPreload(planSize) {
-    setModalPlan(planSize);
-    setModalOpen(true);
-    setToken("");
-    setTokenMsg("");
-  }
-
-  async function claimToken() {
-    setToken("");
-    setTokenMsg("");
-    const userEmail = (email || "").trim();
-    if (!userEmail || !ref) {
-      setTokenMsg("Enter your email and Razorpay payment id (starts with pay_).");
-      return;
-    }
-    if (!/^pay_[a-zA-Z0-9]+$/.test(ref)) {
-      setTokenMsg("Invalid payment id. Use the id that starts with pay_.");
-      return;
-    }
-    setLoadingToken(true);
-    try {
-      const r = await fetch("/api/storage/order-token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: userEmail, plan: modalPlan, ref }),
-      });
-      const text = await r.text();
-      let j;
-      try {
-        j = JSON.parse(text);
-      } catch {
-        j = { error: text || "invalid_response" };
-      }
-      if (!r.ok || !j?.token) throw new Error(j?.error || "token_failed");
-
-      setToken(j.token);
-      setTokenMsg("Token issued. Use the command below inside your container.");
-      gaEvent("generate_lead", { method: "order_token", plan: modalPlan });
-    } catch (e) {
-      setTokenMsg(String(e.message || "Server error creating token"));
-    } finally {
-      setLoadingToken(false);
-    }
-  }
-
-  function buildPreloadCmd(tok) {
-    return `curl -fsSL ${preloadUrl} | ORDER_TOKEN=${tok} bash`;
-  }
-
-  async function copyPreloadCmd() {
-    if (!token) {
-      setTokenMsg("Get a token first.");
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(buildPreloadCmd(token));
-      setTokenMsg("Command copied.");
-    } catch {
-      setTokenMsg("Could not copy. Select and copy manually.");
-    }
-  }
-
-  const Modal = () =>
-    !modalOpen ? null : (
-      <div className="fixed inset-0 z-50 flex items-center justify-center">
-        <div
-          className="absolute inset-0 bg-black/50"
-          onClick={() => setModalOpen(false)}
-        />
-        <div className="relative bg-white w-full max-w-xl mx-4 rounded-2xl shadow-lg p-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-semibold">
-              Preload Add-on (requires ORDER_TOKEN)
-            </h3>
-            <button
-              onClick={() => setModalOpen(false)}
-              className="text-gray-500 hover:text-gray-800"
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="text-sm text-gray-700">
-            <p className="mb-2">
-              Plan: <b>{modalPlan}</b> • Price:{" "}
-              <b>₹{PRELOAD_PRICE[modalPlan]}</b> (~$
-              {toUSD(PRELOAD_PRICE[modalPlan])})
-            </p>
-            <ol className="list-decimal pl-5 space-y-1">
-              <li>
-                <b>Pay</b> for Preload{" "}
-                {LINKS_PRELOAD[modalPlan] ? (
-                  <a
-                    href={LINKS_PRELOAD[modalPlan]}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-blue-600 hover:underline"
-                    onClick={() =>
-                      gaEvent("begin_checkout", {
-                        value: PRELOAD_PRICE[modalPlan],
-                        currency: "INR",
-                        items: [
-                          {
-                            item_id: `preload_${modalPlan}`,
-                            item_name: `preload_${modalPlan}`,
-                            item_category: "storage",
-                            quantity: 1,
-                            price: PRELOAD_PRICE[modalPlan],
-                          },
-                        ],
-                        payment_method: "razorpay_link",
-                      })
-                    }
-                  >
-                    here
-                  </a>
-                ) : (
-                  <span className="text-red-600">(set link in Vercel)</span>
-                )}
-                .
-              </li>
-              <li>
-                Enter your <b>email</b> and Razorpay <b>payment id</b> (starts
-                with <code>pay_</code>) to get your <b>ORDER_TOKEN</b>.
-              </li>
-              <li>
-                <b>Run the command inside your container</b> (not on the host)
-                to preload into <code>/data</code>.
-              </li>
-            </ol>
-
-            <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3 text-[13px] leading-5">
-              <b>Where to run?</b> After your SDL is deployed and the lease is
-              <i> running</i> on Indianode:
-              <ul className="list-disc pl-5 mt-1 space-y-1">
-                <li>
-                  In <b>Cloudmos</b> / <b>Akash Console</b>, open{" "}
-                  <b>Shell/Exec</b> to get a terminal <i>inside the container</i>.
-                </li>
-                <li>
-                  Verify volume: <code>df -h | grep /data</code> should show your{" "}
-                  {modalPlan} dataset.
-                </li>
-                <li>
-                  Then run:
-                  <pre className="bg-gray-900 text-gray-100 rounded mt-2 p-2 overflow-x-auto">
-                    <code>
-                      {`curl -fsSL ${preloadUrl} | ORDER_TOKEN=${token || "<PASTE_TOKEN_HERE>"} bash`}
-                    </code>
-                  </pre>
-                </li>
-              </ul>
-              <div className="mt-2">
-                <b>Never</b> run this on the provider host; it’s intended only
-                for the container filesystem.
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
-            <label className="flex flex-col">
-              <span className="text-xs font-semibold mb-1">Plan</span>
-              <select
-                value={modalPlan}
-                onChange={(e) => setModalPlan(e.target.value)}
-                className="border rounded-lg px-3 py-2"
-              >
-                <option value="200Gi">200 Gi</option>
-                <option value="500Gi">500 Gi</option>
-                <option value="1TiB">1 TiB</option>
-              </select>
-            </label>
-            <label className="flex flex-col">
-              <span className="text-xs font-semibold mb-1">Email</span>
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="border rounded-lg px-3 py-2"
-              />
-            </label>
-            <label className="flex flex-col">
-              <span className="text-xs font-semibold mb-1">
-                Razorpay payment id
-              </span>
-              <input
-                value={ref}
-                onChange={(e) => setRef(e.target.value)}
-                placeholder="pay_XXXXXXXXXXXXXXXX"
-                className="border rounded-lg px-3 py-2"
-              />
-            </label>
-          </div>
-
-          <div className="mt-3 flex items-center gap-2">
-            <button
-              onClick={claimToken}
-              disabled={loadingToken}
-              className={`px-4 py-2 rounded-xl text-white ${
-                loadingToken
-                  ? "bg-gray-400"
-                  : "bg-emerald-600 hover:bg-emerald-700"
-              }`}
-            >
-              {loadingToken ? "Verifying…" : "Get ORDER_TOKEN"}
-            </button>
-            {token && (
-              <button
-                onClick={copyPreloadCmd}
-                className="px-4 py-2 rounded-xl border border-gray-300 hover:bg-gray-50"
-              >
-                Copy Preload Command
-              </button>
-            )}
-          </div>
-
-          {token && (
-            <div className="mt-3">
-              <div className="text-xs text-gray-600 mb-1">Your ORDER_TOKEN</div>
-              <div className="font-mono text-sm bg-gray-100 rounded-lg p-2 break-all">
-                {token}
-              </div>
-            </div>
-          )}
-
-          {tokenMsg && (
-            <div className="mt-3 text-sm text-gray-700">{tokenMsg}</div>
-          )}
-
-          <div className="mt-4 text-xs text-gray-500">
-            The script verifies your <b>ORDER_TOKEN</b> and that the lease runs
-            on <code>{PROVIDER_ADDR}</code>. Without a valid token, preload will
-            refuse.
-          </div>
+function Modal({ open, onClose, children, title = "Next steps" }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-2xl mx-4 rounded-2xl bg-white shadow-xl text-slate-900">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h3 className="font-semibold text-lg">{title}</h3>
+          <button onClick={onClose} className="rounded-lg p-2 hover:bg-gray-100" aria-label="Close">✕</button>
         </div>
+        <div className="p-5">{children}</div>
       </div>
-    );
+    </div>
+  );
+}
 
-  // ----- UI -----
+export default function Storage() {
+  const [minutes, setMinutes] = useState(60);
+  const [email, setEmail] = useState("");
+  const [promo, setPromo] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  // modal
+  const [mintOpen, setMintOpen] = useState(false);
+  const [mintCmd, setMintCmd] = useState("");
+  const [mintCmdWin, setMintCmdWin] = useState("");
+  const [mintToken, setMintToken] = useState("");
+  const [osTab, setOsTab] = useState("linux");
+  useEffect(() => { if (typeof navigator !== "undefined") setOsTab(navigator.userAgent.toLowerCase().includes("windows")?"windows":"linux"); }, []);
+
+  // plans (example INR per 60m)
+  const plans = [
+    { key:"nvme200", name:"NVMe 200 GiB", base: 50 },
+    { key:"nvme500", name:"NVMe 500 GiB", base: 120 },
+    { key:"nvme1t",  name:"NVMe 1 TiB",   base: 220 },
+  ];
+  const promoCode = (promo||"").trim().toUpperCase();
+  const promoActive = promoCode === "TRY" || promoCode === "TRY10";
+  const PROMO_OFF_INR = 5;
+
+  function inr(base, m) {
+    const mins = Math.max(1, Number(m||60));
+    let total = Math.ceil((base/60)*mins);
+    if (promoActive) total = Math.max(1, total - PROMO_OFF_INR);
+    return total;
+  }
+
+  function getRunUrl() {
+    try { if (typeof window!=="undefined") return `${window.location.origin}/storage/run.sh`; } catch {}
+    return "https://www.indianode.com/storage/run.sh";
+  }
+  function buildCommands(token) {
+    const url = getRunUrl();
+    const posix = `export ORDER_TOKEN='${token}'
+curl -fsSL ${url} | bash`;
+    const win   = `$env:ORDER_TOKEN = '${token}'
+(Invoke-WebRequest -UseBasicParsing ${url}).Content | bash`;
+    return { posix, win };
+  }
+
+  async function createOrder({ product, minutes, email }) {
+    const r = await fetch("/api/storage/order", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ product, minutes, email, promo }) });
+    const j = await r.json(); if (!r.ok) throw new Error(j?.error || "order_failed"); return j;
+  }
+  async function mintToken({ paymentId, product, minutes, email, promo }) {
+    const r = await fetch("/api/storage/mint", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ paymentId, product, minutes:Number(minutes), email:(email||"").trim(), promo:(promo||"").trim() }) });
+    const j = await r.json(); if (!r.ok) throw new Error(j?.error || "mint_failed"); return j;
+  }
+
+  async function payWithRazorpay({ product, display }) {
+    try {
+      setLoading(true);
+      const order = await createOrder({ product, minutes, email:(email||"").trim() });
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_xxxxxx",
+        amount: order.amount, currency: order.currency, order_id: order.id,
+        name: "Indianode Storage", description: `${display} (${minutes} min)`,
+        notes: { minutes:String(minutes), product, email: (email||"").trim(), promo: promoCode },
+        theme: { color: "#111827" },
+        handler: async (resp) => {
+          try {
+            const res = await mintToken({ paymentId: resp.razorpay_payment_id, product, minutes, email, promo });
+            const token = res?.token || ""; if (!token) throw new Error("no_token");
+            const { posix, win } = buildCommands(token);
+            setMintToken(token); setMintCmd(posix); setMintCmdWin(win); setMintOpen(true);
+          } catch (e) { alert(e.message || "Could not mint token"); }
+        },
+      };
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", (resp)=>alert(resp?.error?.description || "Payment failed"));
+      rzp.open();
+    } catch (e) { alert(e.message || "Something went wrong"); } finally { setLoading(false); }
+  }
+
   return (
     <>
       <Head>
-        <title>Indianode Storage — Same-host NVMe for Akash</title>
-        <meta
-          name="description"
-          content="Provider-locked SDLs for fast same-host NVMe (/data). Choose 200 Gi / 500 Gi / 1 TiB. Optional Preload with ORDER_TOKEN."
-        />
+        <title>Indianode — Persistent NVMe Storage</title>
+        <meta name="description" content="Attach fast NVMe volumes to your workloads. Minute-capped tokens." />
         <link rel="canonical" href="https://www.indianode.com/storage" />
       </Head>
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" />
 
-      <div className="min-h-screen bg-gray-50 text-gray-900 flex flex-col">
-        <header className="px-6 py-4 bg-gray-900 text-white flex items-center justify-between">
-          <div className="font-bold text-lg">Indianode — Storage</div>
-          <div
-            className={`text-xs px-2 py-1 rounded ${
-              busy ? "bg-amber-500" : "bg-emerald-600"
-            }`}
-            title="GPU status from /api/status"
-          >
-            {busy ? "GPU busy" : "GPU available"}
+      <SiteChrome title="Persistent Storage (NVMe)" subtle>
+        <div className="max-w-3xl mx-auto bg-white/95 text-slate-900 rounded-2xl shadow p-6 mb-8">
+          <div className="grid md:grid-cols-3 gap-4">
+            <label className="flex flex-col">
+              <span className="text-sm font-semibold mb-1">Email (optional)</span>
+              <input value={email} onChange={(e)=>setEmail(e.target.value)} placeholder="you@example.com" className="border rounded-lg px-3 py-2" disabled={loading} />
+            </label>
+            <label className="flex flex-col">
+              <span className="text-sm font-semibold mb-1">Minutes</span>
+              <input type="number" min="1" max="240" value={minutes} onChange={(e)=>setMinutes(Math.max(1, Number(e.target.value||1)))} className="border rounded-lg px-3 py-2" disabled={loading} />
+            </label>
+            <label className="flex flex-col">
+              <span className="text-sm font-semibold mb-1">Promo code</span>
+              <input value={promo} onChange={(e)=>setPromo(e.target.value)} placeholder="TRY / TRY10" className="border rounded-lg px-3 py-2" disabled={loading} />
+            </label>
           </div>
-        </header>
+        </div>
 
-        <main className="flex-1 flex items-center justify-center">
-          <div className="w-full max-w-6xl mx-auto px-4">
-            {/* Clear note: you pay AKT on Akash; this page only offers optional Preload */}
-            <div className="mb-4 rounded-xl bg-blue-50 border border-blue-100 p-3 text-sm text-blue-900 text-center">
-              Deploy with the locked SDL and pay <b>AKT</b> on the Akash marketplace as usual.
-              This page does <b>not</b> charge monthly. <b>Preload</b> is an optional paid add-on.
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {plans.map((p) => (
-                <div
-                  key={p.key}
-                  className="bg-white rounded-2xl shadow p-5 flex flex-col justify-between"
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {plans.map((p)=>(
+            <div key={p.key} className="bg-white/95 text-slate-900 shadow-lg rounded-2xl p-6 flex flex-col justify-between">
+              <div>
+                <h2 className="text-xl font-bold mb-2">{p.name}</h2>
+                <p className="text-gray-800">
+                  <span className="font-semibold">Price for {minutes} min:</span> ₹{inr(p.base, minutes)}
+                </p>
+                {promoActive && <p className="text-xs text-green-700 mt-1">Includes promo: −₹{PROMO_OFF_INR}</p>}
+              </div>
+              <div className="grid grid-cols-1 gap-2 mt-4">
+                <button
+                  className={`text-white px-4 py-2 rounded-xl ${loading ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"}`}
+                  onClick={() => payWithRazorpay({ product:p.key, display:p.name })}
+                  disabled={loading}
                 >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-xl font-bold">{p.title}</h3>
-                      <span className="text-[11px] text-emerald-700">
-                        lock: {ATTR_KEY}={ATTR_VAL}
-                      </span>
-                    </div>
-                    <div className="mt-2 text-2xl font-extrabold">
-                      ₹{p.price}{" "}
-                      <span className="text-sm text-gray-500">
-                        ~${toUSD(p.price)}
-                      </span>
-                      <span className="ml-2 text-[11px] text-gray-500">/mo</span>
-                    </div>
-                    <p className="mt-1 text-sm text-gray-600">
-                      Persistent volume at <code>/data</code> (NVMe).
-                    </p>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-2">
-                    {/* Akash deployment (locked SDL) */}
-                    {SHOW_AKASH && (
-                      <>
-                        <button
-                          onClick={() => downloadSDL(p.size)}
-                          className="col-span-2 md:col-span-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl px-3 py-2"
-                          title="Download provider-locked SDL"
-                        >
-                          Deploy on Akash (SDL)
-                        </button>
-                        <button
-                          onClick={() => copySDL(p.size)}
-                          className="col-span-2 md:col-span-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl px-3 py-2"
-                          title="Copy SDL to clipboard"
-                        >
-                          Copy SDL
-                        </button>
-                      </>
-                    )}
-
-                    {/* Monthly Card/UPI — hidden by default */}
-                    {SHOW_CARD_LINKS && canSell ? (
-                      LINKS[p.key] ? (
-                        <a
-                          href={LINKS[p.key]}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="col-span-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl px-3 py-2 text-center"
-                          onClick={() =>
-                            gaEvent("begin_checkout", {
-                              value: p.price,
-                              currency: "INR",
-                              items: [
-                                {
-                                  item_id: p.key,
-                                  item_name: p.title,
-                                  item_category: "storage",
-                                  quantity: 1,
-                                  price: p.price,
-                                },
-                              ],
-                              payment_method: "razorpay_link",
-                            })
-                          }
-                          title="Pay with Card/UPI"
-                        >
-                          Pay with Card/UPI
-                        </a>
-                      ) : (
-                        <button
-                          disabled
-                          className="col-span-2 bg-gray-200 text-gray-600 rounded-xl px-3 py-2"
-                          title="Set your Razorpay link in Vercel env"
-                        >
-                          Set payment link
-                        </button>
-                      )
-                    ) : null}
-
-                    {/* Preload add-on (ORDER_TOKEN) */}
-                    <button
-                      onClick={() => openPreload(p.size)}
-                      className="col-span-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl px-3 py-2"
-                      title="Paid dataset/model preload requiring ORDER_TOKEN"
-                    >
-                      Preload Add-on (ORDER_TOKEN)
-                    </button>
-                  </div>
-                </div>
-              ))}
+                  Pay ₹{inr(p.base, minutes)} • Razorpay
+                </button>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  After payment, you’ll get an ORDER_TOKEN and a one-line redeem command.
+                </p>
+              </div>
             </div>
+          ))}
+        </div>
+      </SiteChrome>
 
-            <div className="mt-4 text-center text-xs text-gray-700">
-              <details className="inline-block bg-gray-100 border border-gray-200 rounded-xl px-4 py-3">
-                <summary className="cursor-pointer font-semibold">
-                  How to deploy safely (read this)
-                </summary>
-                <ol className="list-decimal text-left pl-5 mt-2 space-y-1">
-                  <li>
-                    <b>Download the SDL</b> (Deploy on Akash). It’s locked with{" "}
-                    <code>{ATTR_KEY}={ATTR_VAL}</code> so it lands on Indianode.
-                  </li>
-                  <li>
-                    In <b>Cloudmos Desktop</b> or <b>Akash Console</b>, create a
-                    deployment and upload the SDL. Wait until the lease is{" "}
-                    <b>active</b>.
-                  </li>
-                  <li>
-                    Open a <b>Shell/Exec</b> inside the container (from the UI).
-                    Confirm volume with <code>df -h | grep /data</code>.
-                  </li>
-                  <li>
-                    To preload models/datasets: open the Preload dialog, get an{" "}
-                    <b>ORDER_TOKEN</b> using your Razorpay <code>pay_…</code>{" "}
-                    id, then run the command <b>inside the container</b>, never
-                    on the host VM.
-                  </li>
-                </ol>
-              </details>
-            </div>
+      <Modal open={mintOpen} onClose={()=>setMintOpen(false)} title="Payment verified — run this command">
+        <div className="space-y-3">
+          <p className="text-sm text-gray-700">
+            We minted a one-time <b>ORDER_TOKEN</b>. Run the command below from your own machine.
+          </p>
+          <div className="flex gap-2 text-xs">
+            <button onClick={()=>setOsTab("linux")} className={`px-3 py-1 rounded-lg border ${osTab==="linux"?"bg-gray-900 text-white border-gray-900":"bg-white text-gray-800 border-gray-200"}`}>macOS / Linux</button>
+            <button onClick={()=>setOsTab("windows")} className={`px-3 py-1 rounded-lg border ${osTab==="windows"?"bg-gray-900 text-white border-gray-900":"bg-white text-gray-800 border-gray-200"}`}>Windows (PowerShell)</button>
           </div>
-        </main>
-
-        <footer className="px-6 py-3 text-center text-xs text-gray-500">
-          © {new Date().getFullYear()} Indianode •{" "}
-          <a href="/" className="text-blue-600 hover:underline">
-            Home
-          </a>
-        </footer>
-      </div>
-
-      <Modal />
+          <div className="bg-gray-900 text-gray-100 rounded-xl p-3 font-mono text-xs overflow-x-auto">
+            {osTab === "windows" ? (mintCmdWin || "…") : (mintCmd || "…")}
+          </div>
+          <div className="flex gap-2">
+            <button className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-xl" onClick={async()=>{try{await navigator.clipboard.writeText(osTab==="windows"?mintCmdWin:mintCmd);}catch{}}}>Copy command</button>
+            <button className="bg-gray-200 hover:bg-gray-300 text-gray-900 px-4 py-2 rounded-xl" onClick={async()=>{try{await navigator.clipboard.writeText(mintToken);}catch{}}}>Copy token only</button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }
