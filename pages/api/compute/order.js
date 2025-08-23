@@ -11,6 +11,9 @@ const PRICE_60 = {
   redis4: 49,   // ₹49 / 60min
   redis8: 89,   // ₹89 / 60min
   redis16: 159, // ₹159 / 60min
+  redis: 80,   // Redis Cache
+  nginx: 40,   // Static HTTP
+  generic: 30, // Generic Job
 };
 
 function calcAmountPaise(sku, minutes, promo) {
