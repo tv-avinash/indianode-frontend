@@ -103,10 +103,10 @@ export default function GPU() {
   function getRunUrl() {
     try {
       if (typeof window !== "undefined") {
-        return `${window.location.origin}/gpu/run.sh`;
+        return `${window.location.origin}/api/gpu/run.sh`;
       }
     } catch {}
-    return "https://www.indianode.com/gpu/run.sh";
+    return "https://www.indianode.com/api/gpu/run.sh";
   }
 
   // Modal + OS commands
