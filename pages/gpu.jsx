@@ -264,45 +264,120 @@ curl -fsSL ${url} | bash`;
     }
   }
 
-  // GPU SDLs (provider-bound; simple, 1x NVIDIA GPU)
+  // --- DISTINCT, PROVIDER-BOUND SDLS ---
   function sdlFor(key) {
-    const common = (image, cpu, mem) => `version: "2.0"
+    if (key === "whisper") {
+      return `version: "2.0"
 services:
-  app:
-    image: ${image}
+  whisper:
+    image: ghcr.io/ggerganov/whisper.cpp:latest
+    # Expose a simple HTTP port (adjust if your container starts a server)
+    expose:
+      - port: 8080
+        as: 80
+        to:
+          - global: true
+        accept:
+          - "*"
     resources:
-      cpu: { units: ${cpu} }
-      memory: { size: ${mem} }
+      cpu: { units: 4 }
+      memory: { size: 8Gi }
       gpu: { units: 1 }
       storage:
         - size: 10Gi
 profiles:
   compute:
-    app: {}
+    whisper: {}
   placement:
-    anywhere:
+    akash:
       attributes:
         org: indianode
       pricing:
-        app:
+        whisper:
           denom: uakt
           amount: 100
 deployment:
-  app:
-    anywhere:
-      profile: app
+  whisper:
+    akash:
+      profile: whisper
       count: 1
 `;
-    switch (key) {
-      case "whisper":
-        return common("ghcr.io/ggerganov/whisper.cpp:latest", 4, "8Gi");
-      case "sd":
-        return common("pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime", 6, "12Gi");
-      case "llama":
-      default:
-        return common("pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime", 6, "16Gi");
     }
+    if (key === "sd") {
+      return `version: "2.0"
+services:
+  webui:
+    image: pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
+    # Typical Stable Diffusion WebUI port
+    expose:
+      - port: 7860
+        as: 80
+        to:
+          - global: true
+        accept:
+          - "*"
+    resources:
+      cpu: { units: 6 }
+      memory: { size: 12Gi }
+      gpu: { units: 1 }
+      storage:
+        - size: 20Gi
+profiles:
+  compute:
+    webui: {}
+  placement:
+    akash:
+      attributes:
+        org: indianode
+      pricing:
+        webui:
+          denom: uakt
+          amount: 100
+deployment:
+  webui:
+    akash:
+      profile: webui
+      count: 1
+`;
+    }
+    // llama
+    return `version: "2.0"
+services:
+  llama:
+    image: pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
+    # LLM server example port
+    expose:
+      - port: 8000
+        as: 80
+        to:
+          - global: true
+        accept:
+          - "*"
+    resources:
+      cpu: { units: 8 }
+      memory: { size: 16Gi }
+      gpu: { units: 1 }
+      storage:
+        - size: 20Gi
+profiles:
+  compute:
+    llama: {}
+  placement:
+    akash:
+      attributes:
+        org: indianode
+      pricing:
+        llama:
+          denom: uakt
+          amount: 100
+deployment:
+  llama:
+    akash:
+      profile: llama
+      count: 1
+`;
   }
+
   async function copySDL(key) {
     try {
       await navigator.clipboard.writeText(sdlFor(key));
