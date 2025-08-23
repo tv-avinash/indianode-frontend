@@ -1,42 +1,34 @@
 // pages/api/compute/pick.js
-import { kv } from "@vercel/kv";
+const KV_URL   = process.env.KV_REST_API_URL;
+const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+const PROVIDER = process.env.COMPUTE_PROVIDER_KEY || process.env.COMPUTE_PROVIDER_KEY;
 
-function auth(req) {
-  const h = req.headers["authorization"] || req.headers["Authorization"] || "";
-  const x = req.headers["x-provider-key"] || req.headers["X-Provider-Key"] || "";
-  const key = h.startsWith("Bearer ") ? h.slice(7) : (x || "");
-  return key && key === process.env.PROVIDER_KEY;
+function authOk(req) {
+  const h = req.headers || {};
+  const bearer = (h.authorization || "").replace(/^Bearer\s+/i, "");
+  const xpk = h["x-provider-key"] || h["x-provider"] || "";
+  const supplied = String(bearer || xpk || "");
+  return (supplied && supplied === (process.env.COMPUTE_PROVIDER_KEY || ""));
+}
+async function kvLPop(key) {
+  const r = await fetch(`${KV_URL}/lpop/${encodeURIComponent(key)}`, { method: "POST", headers: { Authorization: `Bearer ${KV_TOKEN}` }});
+  const j = await r.json();
+  return j?.result || null;
+}
+async function kvSet(key, val) {
+  await fetch(`${KV_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(val)}`, { method:"POST", headers:{ Authorization:`Bearer ${KV_TOKEN}` }});
 }
 
 export default async function handler(req, res) {
-  try {
-    if (req.method !== "POST") return res.status(405).json({ ok: false, error: "method_not_allowed" });
-    if (!auth(req)) return res.status(401).json({ ok: false, error: "unauthorized" });
+  if (req.method !== "POST") return res.status(405).json({ ok:false, error:"method_not_allowed" });
+  if (!authOk(req)) return res.status(401).json({ ok:false, error:"unauthorized" });
 
-    const PFX  = process.env.KV_PREFIX || "compute";
-    const QKEY = `${PFX}:queue`;
-    const SKEY = (id) => `${PFX}:status:${id}`;
+  const raw = await kvLPop("compute:queue");
+  if (!raw) return res.status(200).json({ ok:true, job:null });
 
-    const raw = await kv.rpop(QKEY);
-    if (!raw) return res.json({ ok: true, job: null });
+  const job = JSON.parse(raw);
+  const status = { ok:true, id:job.id, status:"running", sku:job.sku, minutes:job.minutes, email:job.email, startedAt:Date.now(), worker:req.headers["x-forwarded-for"] || "worker" };
+  await kvSet(`compute:status:${job.id}`, JSON.stringify(status));
 
-    let job;
-    try { job = JSON.parse(raw); } catch { job = null; }
-    if (!job || !job.id) return res.json({ ok: true, job: null });
-
-    // set running status
-    await kv.set(SKEY(job.id), JSON.stringify({
-      id: job.id,
-      status: "running",
-      sku: job.product,
-      minutes: job.minutes,
-      email: job.email || "",
-      startedAt: Date.now(),
-      message: "picked by provider"
-    }), { ex: 7 * 24 * 3600 });
-
-    return res.json({ ok: true, job });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: String(e?.message || e) });
-  }
+  return res.status(200).json({ ok:true, job });
 }

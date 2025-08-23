@@ -1,25 +1,23 @@
 // pages/api/compute/status.js
-import { kv } from "@vercel/kv";
+const KV_URL   = process.env.KV_REST_API_URL;
+const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+
+async function kvGet(key) {
+  const r = await fetch(`${KV_URL}/get/${encodeURIComponent(key)}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${KV_TOKEN}` }
+  });
+  const j = await r.json();
+  return j?.result || null;
+}
 
 export default async function handler(req, res) {
-  try {
-    if (req.method !== "GET") return res.status(405).json({ ok: false, error: "method_not_allowed" });
-    const { id } = req.query || {};
-    if (!id) return res.status(400).json({ ok: false, error: "missing_id" });
+  const id = String(req.query?.id || "").trim();
+  if (!id) return res.status(400).json({ ok:false, error:"missing_id" });
 
-    const PFX  = process.env.KV_PREFIX || "compute";
-    const SKEY = `${PFX}:status:${id}`;
+  const raw = await kvGet(`compute:status:${id}`);
+  if (!raw) return res.status(200).json({ ok:false, error:"not_found" });
 
-    const raw = await kv.get(SKEY);
-    if (!raw) return res.status(404).json({ ok: false, error: "not_found" });
-
-    try {
-      const obj = JSON.parse(raw);
-      return res.json({ ok: true, ...obj });
-    } catch {
-      return res.json({ ok: true, id, status: "unknown" });
-    }
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: String(e?.message || e) });
-  }
+  try { return res.status(200).json(JSON.parse(raw)); }
+  catch { return res.status(200).json({ ok:false, error:"corrupt" }); }
 }

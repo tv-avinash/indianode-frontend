@@ -1,59 +1,57 @@
 // pages/api/compute/redeem.js
-import { kv } from "@vercel/kv";
+const KV_URL   = process.env.KV_REST_API_URL;
+const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+const RESEND   = process.env.RESEND_API_KEY || "";
 
-function parseToken(t) {
-  // Accepts v1.<h>.<p>.<s>; we parse payload without failing if signature missing.
-  const parts = (t || "").split(".");
-  if (parts.length < 4 || parts[0] !== "v1") return null;
+async function kvSet(key, value) {
+  await fetch(`${KV_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${KV_TOKEN}` }
+  });
+}
+async function kvRPush(key, value) {
+  await fetch(`${KV_URL}/rpush/${encodeURIComponent(key)}/${encodeURIComponent(value)}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${KV_TOKEN}` }
+  });
+}
+
+function decodeToken(tok) {
   try {
-    const payload = JSON.parse(Buffer.from(parts[2].replace(/-/g,"+").replace(/_/g,"/"), "base64").toString("utf8"));
-    return payload;
-  } catch {
-    return null;
-  }
+    const parts = String(tok).split(".");
+    if (parts.length < 2) return null;
+    const json = Buffer.from(parts[1], "base64url").toString("utf8");
+    return JSON.parse(json);
+  } catch { return null; }
+}
+
+async function sendEmail(to, subject, html) {
+  if (!RESEND || !to) return;
+  try {
+    await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND}` },
+      body: JSON.stringify({ from: "Indianode <notify@mail.indianode.com>", to, subject, html })
+    });
+  } catch {}
 }
 
 export default async function handler(req, res) {
-  try {
-    if (req.method !== "POST") return res.status(405).json({ ok: false, error: "method_not_allowed" });
+  if (req.method !== "POST") return res.status(405).json({ ok:false, error:"method_not_allowed" });
 
-    const { token } = req.body || {};
-    if (!token) return res.status(400).json({ ok: false, error: "missing_token" });
+  const token = String(req.body?.token || process.env.ORDER_TOKEN || "").trim();
+  if (!token) return res.status(400).json({ ok:false, error:"missing_token" });
 
-    const PFX  = process.env.KV_PREFIX || "compute";
-    const QKEY = `${PFX}:queue`;
-    const SKEY = (id) => `${PFX}:status:${id}`;
+  const data = decodeToken(token);
+  if (!data || data.kind !== "compute") return res.status(400).json({ ok:false, error:"bad_token" });
 
-    const p = parseToken(token);
-    if (!p || p.kind !== "compute") {
-      return res.status(400).json({ ok: false, error: "invalid_token" });
-    }
+  const id = `job_${Date.now()}_${Math.random().toString(16).slice(2,8)}`;
+  const job = { id, kind:"compute", sku:data.sku || data.product || "generic", minutes: Number(data.minutes || 1), token, email: data.email || "", enqueuedAt: Date.now() };
 
-    const id = `job_${Date.now()}_${Math.random().toString(16).slice(2,8)}`;
-    const job = {
-      id,
-      kind: "compute",
-      product: p.product || "generic",
-      minutes: Math.max(1, Number(p.minutes || 1)),
-      token,
-      email: p.email || "",
-      enqueuedAt: Date.now()
-    };
+  await kvRPush("compute:queue", JSON.stringify(job));
+  await kvSet(`compute:status:${id}`, JSON.stringify({ ok:true, id, status:"queued", sku:job.sku, minutes:job.minutes, email:job.email, createdAt:job.enqueuedAt, message:"queued via redeem" }));
 
-    // queue (FIFO: LPUSH + RPOP)
-    await kv.lpush(QKEY, JSON.stringify(job));
-    await kv.set(SKEY(id), JSON.stringify({
-      id,
-      status: "queued",
-      sku: job.product,
-      minutes: job.minutes,
-      email: job.email || "",
-      createdAt: job.enqueuedAt,
-      message: "queued via redeem"
-    }), { ex: 7 * 24 * 3600 });
+  await sendEmail(job.email, "Job queued", `<p>Your job <b>${id}</b> is queued for ${job.minutes} min on ${job.sku}.</p>`).catch(()=>{});
 
-    return res.json({ ok: true, queued: true, id });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: String(e?.message || e) });
-  }
+  return res.status(200).json({ ok:true, queued:true, id });
 }

@@ -1,64 +1,51 @@
 // pages/api/compute/done.js
-import { kv } from "@vercel/kv";
+const KV_URL   = process.env.KV_REST_API_URL;
+const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+const RESEND   = process.env.RESEND_API_KEY || "";
 
-async function sendEmail(to, subject, text) {
-  const API = process.env.RESEND_API_KEY;
-  const FROM = process.env.RESEND_FROM;
-  if (!API || !FROM || !to) return;
+function authOk(req) {
+  const h = req.headers || {};
+  const bearer = (h.authorization || "").replace(/^Bearer\s+/i, "");
+  const xpk = h["x-provider-key"] || "";
+  const supplied = String(bearer || xpk || "");
+  return (supplied && supplied === (process.env.COMPUTE_PROVIDER_KEY || ""));
+}
+async function kvGet(key) {
+  const r = await fetch(`${KV_URL}/get/${encodeURIComponent(key)}`, { method:"POST", headers:{ Authorization:`Bearer ${KV_TOKEN}` }});
+  const j = await r.json(); return j?.result || null;
+}
+async function kvSet(key, val) {
+  await fetch(`${KV_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(val)}`, { method:"POST", headers:{ Authorization:`Bearer ${KV_TOKEN}` }});
+}
+async function sendEmail(to, subject, html) {
+  if (!RESEND || !to) return;
   try {
     await fetch("https://api.resend.com/emails", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${API}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ from: FROM, to: [to], subject, text })
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND}` },
+      body: JSON.stringify({ from: "Indianode <notify@mail.indianode.com>", to, subject, html })
     });
   } catch {}
 }
 
-function auth(req) {
-  const h = req.headers["authorization"] || req.headers["Authorization"] || "";
-  const x = req.headers["x-provider-key"] || req.headers["X-Provider-Key"] || "";
-  const key = h.startsWith("Bearer ") ? h.slice(7) : (x || "");
-  return key && key === process.env.PROVIDER_KEY;
-}
-
 export default async function handler(req, res) {
-  try {
-    if (req.method !== "POST") return res.status(405).json({ ok: false, error: "method_not_allowed" });
-    if (!auth(req)) return res.status(401).json({ ok: false, error: "unauthorized" });
+  if (req.method !== "POST") return res.status(405).json({ ok:false, error:"method_not_allowed" });
+  if (!authOk(req)) return res.status(401).json({ ok:false, error:"unauthorized" });
 
-    const { id, success = true, message = "", logUrl = "" } = req.body || {};
-    if (!id) return res.status(400).json({ ok: false, error: "missing_id" });
+  const { id, success = true, logs = "" } = req.body || {};
+  if (!id) return res.status(400).json({ ok:false, error:"missing_id" });
 
-    const PFX  = process.env.KV_PREFIX || "compute";
-    const SKEY = `${PFX}:status:${id}`;
+  const raw = await kvGet(`compute:status:${id}`);
+  if (!raw) return res.status(404).json({ ok:false, error:"not_found" });
 
-    const current = await kv.get(SKEY);
-    let obj = {};
-    try { obj = current ? JSON.parse(current) : {}; } catch {}
+  const cur = JSON.parse(raw);
+  cur.status = success ? "completed" : "failed";
+  cur.endedAt = Date.now();
+  if (logs) cur.logs = String(logs).slice(0, 4000);
 
-    const status = success ? "completed" : "failed";
-    const updated = {
-      ...obj,
-      id,
-      status,
-      message: message || (success ? "completed" : "failed"),
-      finishedAt: Date.now(),
-      logUrl: logUrl || obj.logUrl || ""
-    };
-    await kv.set(SKEY, JSON.stringify(updated), { ex: 7 * 24 * 3600 });
+  await kvSet(`compute:status:${id}`, JSON.stringify(cur));
+  await sendEmail(cur.email, `Job ${success ? "completed" : "failed"}: ${id}`,
+    `<p>Your job <b>${id}</b> has ${success ? "completed" : "failed"}.</p>`).catch(()=>{});
 
-    if ((obj.email || "").includes("@")) {
-      await sendEmail(obj.email,
-        success ? "Your compute job is complete" : "Your compute job failed",
-        `Job ${id} ${status}.\n\n${updated.message}${updated.logUrl ? `\nLogs: ${updated.logUrl}` : ""}`
-      );
-    }
-
-    return res.json({ ok: true });
-  } catch (e) {
-    return res.status(500).json({ ok: false, error: String(e?.message || e) });
-  }
+  return res.status(200).json({ ok:true });
 }
