@@ -1,82 +1,117 @@
 // pages/api/gpu/redeem.js
-const KV_URL = process.env.KV_REST_API_URL;
-const KV_TOKEN = process.env.KV_REST_API_TOKEN;
+import crypto from "crypto";
 
-function b64urlToUtf8(b64) {
-  let s = (b64 || "").replace(/-/g, "+").replace(/_/g, "/");
+const ALLOWED = new Set(["whisper", "sd", "llama"]);
+
+function b64urlToBuffer(s) {
+  // base64url -> base64
+  s = String(s).replace(/-/g, "+").replace(/_/g, "/");
   while (s.length % 4) s += "=";
-  return Buffer.from(s, "base64").toString("utf8");
-}
-
-function parseV1Token(token) {
-  if (typeof token !== "string" || !token.startsWith("v1.")) {
-    return { error: "bad_token_format" };
-  }
-  const parts = token.slice(3).split(".");
-  // supports:
-  //   v1.<payload>
-  //   v1.<payload>.<sig>
-  //   v1.<header>.<payload>[.<sig>]
-  let payloadPart;
-  if (parts.length === 1) payloadPart = parts[0];
-  else if (parts.length === 2) payloadPart = parts[0];
-  else payloadPart = parts[1];
-  try {
-    return { payload: JSON.parse(b64urlToUtf8(payloadPart)) };
-  } catch {
-    return { error: "bad_token_payload" };
-  }
+  return Buffer.from(s, "base64");
 }
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
+    res.setHeader("Allow", ["POST"]);
     return res.status(405).json({ ok: false, error: "method_not_allowed" });
   }
-  if (!KV_URL || !KV_TOKEN) {
-    return res.status(500).json({ ok: false, error: "kv_not_configured" });
-  }
+
+  const SECRET =
+    process.env.GPU_ORDER_TOKEN_SECRET || process.env.ORDER_TOKEN_SECRET;
+  const KV_URL = process.env.KV_URL;
+  const KV_TOKEN = process.env.KV_TOKEN;
+
+  if (!SECRET) return res.status(500).json({ ok: false, error: "token_secret_missing" });
+  if (!KV_URL || !KV_TOKEN) return res.status(500).json({ ok: false, error: "kv_missing" });
 
   try {
     const { token } = req.body || {};
-    const { payload, error } = parseV1Token(token);
-    if (error) return res.status(400).json({ ok: false, error });
+    if (!token || typeof token !== "string") {
+      return res.status(400).json({ ok: false, error: "missing_token" });
+    }
 
-    const email   = (payload.email || "").trim();
-    const product = String(payload.product || payload.sku || "sd").toLowerCase();
-    const promo   = (payload.promo || "").trim();
-    const mRaw    = parseInt(payload.minutes, 10);
-    const minutes = Math.min(480, Math.max(1, isNaN(mRaw) ? 1 : mRaw));
+    // Expect v1.<payload>.<sig>
+    const parts = token.split(".");
+    if (parts.length !== 3 || parts[0] !== "v1") {
+      return res.status(400).json({ ok: false, error: "bad_token_format" });
+    }
 
-    // Map GPU product to your existing worker SKU (your worker runs "generic")
-    const sku = ["sd", "whisper", "llama"].includes(product) ? "generic" : product;
+    // Verify signature
+    let payload;
+    try {
+      const sigExpected = crypto
+        .createHmac("sha256", SECRET)
+        .update(parts[1])
+        .digest("base64url");
+      if (sigExpected !== parts[2]) {
+        return res.status(400).json({ ok: false, error: "bad_token_signature" });
+      }
 
-    const now   = Date.now();
-    const jobId = `job_${now}_${Math.random().toString(16).slice(2, 8)}`;
+      const body = b64urlToBuffer(parts[1]).toString("utf8");
+      payload = JSON.parse(body);
+    } catch {
+      return res.status(400).json({ ok: false, error: "bad_token_format" });
+    }
 
+    // Accept both legacy (no kind) and new (kind: "gpu")
+    const kind = payload.kind || "gpu";
+    if (kind !== "gpu") {
+      return res.status(400).json({ ok: false, error: "wrong_kind" });
+    }
+
+    const product = String(payload.product || "").toLowerCase();
+    const minutes = Math.max(1, Math.min(240, Number(payload.minutes || 0)));
+    if (!ALLOWED.has(product)) {
+      return res.status(400).json({ ok: false, error: "invalid_product" });
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && now > Number(payload.exp)) {
+      return res.status(400).json({ ok: false, error: "token_expired" });
+    }
+
+    // Queue GPU job
+    const jobId = `job_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
     const job = {
-      id: jobId, kind: "compute", product: sku, minutes,
-      token, email, promo, enqueuedAt: now,
+      id: jobId,
+      kind: "gpu",
+      product,             // whisper | sd | llama
+      minutes,
+      token,               // original token (for audit)
+      email: payload.email || "",
+      enqueuedAt: Date.now(),
     };
-    const statusDoc = {
-      ok: true, id: jobId, status: "queued", sku, minutes, email,
-      createdAt: now, message: "queued via redeem (gpu)",
+
+    // Push to Upstash list: gpu:queue
+    const push = await fetch(`${KV_URL}/rpush/gpu:queue`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${KV_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify([JSON.stringify(job)]),
+    });
+    const pushResp = await push.json().catch(() => null);
+    if (!push.ok) {
+      return res.status(500).json({ ok: false, error: "kv_push_failed", details: pushResp });
+    }
+
+    // Optional status key (best-effort)
+    const statusObj = {
+      status: "queued",
+      sku: product,
+      minutes,
+      createdAt: job.enqueuedAt,
+      message: "queued via redeem",
     };
-
-    const headers = { Authorization: `Bearer ${KV_TOKEN}` };
-
-    const q = await fetch(`${KV_URL}/lpush/compute:queue/${encodeURIComponent(JSON.stringify(job))}`, {
-      method: "POST", headers,
-    });
-    if (!q.ok) return res.status(500).json({ ok: false, error: "kv_lpush_failed", detail: await q.text() });
-
-    const s = await fetch(`${KV_URL}/set/compute:status:${jobId}/${encodeURIComponent(JSON.stringify(statusDoc))}`, {
-      method: "POST", headers,
-    });
-    if (!s.ok) return res.status(500).json({ ok: false, error: "kv_set_failed", detail: await s.text() });
+    await fetch(
+      `${KV_URL}/set/gpu:status:${jobId}/${encodeURIComponent(JSON.stringify(statusObj))}`,
+      { method: "POST", headers: { Authorization: `Bearer ${KV_TOKEN}` } }
+    ).catch(() => {});
 
     return res.status(200).json({ ok: true, queued: true, id: jobId });
   } catch (e) {
-    return res.status(500).json({ ok: false, error: "server_error", detail: String(e?.message || e) });
+    console.error("gpu redeem error", e);
+    return res.status(500).json({ ok: false, error: "redeem_exception", message: e.message });
   }
 }
