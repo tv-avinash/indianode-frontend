@@ -1,14 +1,11 @@
 // pages/api/gpu/redeem.js
 import crypto from "crypto";
 
-const ALLOWED = new Set(["whisper", "sd", "llama"]);
+const KV_URL   = process.env.KV_URL;
+const KV_TOKEN = process.env.KV_TOKEN;
+const TOKEN_SECRET = process.env.GPU_ORDER_TOKEN_SECRET || process.env.ORDER_TOKEN_SECRET;
 
-function b64urlToBuffer(s) {
-  // base64url -> base64
-  s = String(s).replace(/-/g, "+").replace(/_/g, "/");
-  while (s.length % 4) s += "=";
-  return Buffer.from(s, "base64");
-}
+const GPU_SKUS = new Set(["whisper", "sd", "llama"]); // accepted product keys
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -16,102 +13,108 @@ export default async function handler(req, res) {
     return res.status(405).json({ ok: false, error: "method_not_allowed" });
   }
 
-  const SECRET =
-    process.env.GPU_ORDER_TOKEN_SECRET || process.env.ORDER_TOKEN_SECRET;
-  const KV_URL = process.env.KV_URL;
-  const KV_TOKEN = process.env.KV_TOKEN;
-
-  if (!SECRET) return res.status(500).json({ ok: false, error: "token_secret_missing" });
-  if (!KV_URL || !KV_TOKEN) return res.status(500).json({ ok: false, error: "kv_missing" });
+  if (!KV_URL || !KV_TOKEN) {
+    return res.status(500).json({ ok: false, error: "kv_missing" });
+  }
+  if (!TOKEN_SECRET) {
+    return res.status(500).json({ ok: false, error: "token_secret_missing" });
+  }
 
   try {
     const { token } = req.body || {};
-    if (!token || typeof token !== "string") {
-      return res.status(400).json({ ok: false, error: "missing_token" });
+    if (typeof token !== "string") {
+      return res.status(400).json({ ok: false, error: "bad_token_format" });
     }
 
     // Expect v1.<payload>.<sig>
-    const parts = token.split(".");
-    if (parts.length !== 3 || parts[0] !== "v1") {
+    if (!token.startsWith("v1.") || token.split(".").length !== 3) {
       return res.status(400).json({ ok: false, error: "bad_token_format" });
     }
-
-    // Verify signature
-    let payload;
+    const [, bodyB64, sig] = token.split(".");
+    let bodyJson;
     try {
-      const sigExpected = crypto
-        .createHmac("sha256", SECRET)
-        .update(parts[1])
-        .digest("base64url");
-      if (sigExpected !== parts[2]) {
-        return res.status(400).json({ ok: false, error: "bad_token_signature" });
-      }
-
-      const body = b64urlToBuffer(parts[1]).toString("utf8");
-      payload = JSON.parse(body);
+      bodyJson = JSON.parse(Buffer.from(bodyB64, "base64url").toString("utf8"));
     } catch {
-      return res.status(400).json({ ok: false, error: "bad_token_format" });
+      return res.status(400).json({ ok: false, error: "bad_token_json" });
     }
 
-    // Accept both legacy (no kind) and new (kind: "gpu")
-    const kind = payload.kind || "gpu";
-    if (kind !== "gpu") {
-      return res.status(400).json({ ok: false, error: "wrong_kind" });
+    // Verify HMAC
+    const expectSig = crypto
+      .createHmac("sha256", TOKEN_SECRET)
+      .update(bodyB64)
+      .digest("base64url");
+    if (sig !== expectSig) {
+      return res.status(401).json({ ok: false, error: "bad_token_sig" });
     }
 
-    const product = String(payload.product || "").toLowerCase();
-    const minutes = Math.max(1, Math.min(240, Number(payload.minutes || 0)));
-    if (!ALLOWED.has(product)) {
-      return res.status(400).json({ ok: false, error: "invalid_product" });
-    }
-
+    // Validate claims
     const now = Math.floor(Date.now() / 1000);
-    if (payload.exp && now > Number(payload.exp)) {
+    const {
+      v,
+      kind,              // "gpu" (new tokens). Old tokens may not have this.
+      product,
+      minutes,
+      email = "",
+      iat,
+      exp
+    } = bodyJson || {};
+
+    if (v !== 1) return res.status(400).json({ ok: false, error: "bad_token_version" });
+    if (typeof iat !== "number" || typeof exp !== "number" || now > exp) {
       return res.status(400).json({ ok: false, error: "token_expired" });
     }
 
-    // Queue GPU job
-    const jobId = `job_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
-    const job = {
-      id: jobId,
-      kind: "gpu",
-      product,             // whisper | sd | llama
-      minutes,
-      token,               // original token (for audit)
-      email: payload.email || "",
-      enqueuedAt: Date.now(),
-    };
-
-    // Push to Upstash list: gpu:queue
-    const push = await fetch(`${KV_URL}/rpush/gpu:queue`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${KV_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify([JSON.stringify(job)]),
-    });
-    const pushResp = await push.json().catch(() => null);
-    if (!push.ok) {
-      return res.status(500).json({ ok: false, error: "kv_push_failed", details: pushResp });
+    // Accept if kind is "gpu" OR (for backward-compat) product is in GPU set
+    const prod = String(product || "").toLowerCase();
+    if (!(kind === "gpu" || GPU_SKUS.has(prod))) {
+      return res.status(400).json({ ok: false, error: "bad_token_kind" });
     }
 
-    // Optional status key (best-effort)
-    const statusObj = {
+    const mins = Math.max(1, Math.min(480, Number(minutes || 60)));
+    if (!GPU_SKUS.has(prod)) {
+      return res.status(400).json({ ok: false, error: "invalid_product" });
+    }
+
+    // Construct a job for the GPU queue
+    const id = `job_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+    const job = {
+      id,
+      kind: "gpu",
+      product: prod,
+      minutes: mins,
+      token,         // keep whole token for audit if needed
+      email: String(email || ""),
+      enqueuedAt: Date.now()
+    };
+
+    // Push to Upstash (use path style to avoid JSON body parsing issues)
+    const authH = { Authorization: `Bearer ${KV_TOKEN}` };
+
+    // lpush gpu:queue <job-json>
+    await fetch(
+      `${KV_URL}/lpush/gpu:queue/${encodeURIComponent(JSON.stringify(job))}`,
+      { method: "POST", headers: authH }
+    );
+
+    // Set status key
+    const status = {
+      ok: true,
+      id,
       status: "queued",
-      sku: product,
-      minutes,
+      sku: prod,
+      minutes: mins,
+      email: job.email,
       createdAt: job.enqueuedAt,
-      message: "queued via redeem",
+      message: "queued via redeem"
     };
     await fetch(
-      `${KV_URL}/set/gpu:status:${jobId}/${encodeURIComponent(JSON.stringify(statusObj))}`,
-      { method: "POST", headers: { Authorization: `Bearer ${KV_TOKEN}` } }
-    ).catch(() => {});
+      `${KV_URL}/set/gpu:status:${id}/${encodeURIComponent(JSON.stringify(status))}`,
+      { method: "POST", headers: authH }
+    );
 
-    return res.status(200).json({ ok: true, queued: true, id: jobId });
+    return res.status(200).json({ ok: true, queued: true, id });
   } catch (e) {
-    console.error("gpu redeem error", e);
+    console.error("[gpu/redeem]", e);
     return res.status(500).json({ ok: false, error: "redeem_exception", message: e.message });
   }
 }
