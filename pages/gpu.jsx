@@ -452,7 +452,7 @@ deployment:
                   {status}
                 </span>
                 <span className="ml-2 text-gray-500">
-                  Pay per minute & redeem via <code className="font-mono">/gpu/run.sh</code>.
+                  Pay per minute & redeem via <code className="font-mono">/api/gpu/run.sh</code>.
                 </span>
               </p>
             </div>

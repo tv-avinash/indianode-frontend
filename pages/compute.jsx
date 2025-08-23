@@ -102,10 +102,10 @@ export default function Compute() {
   function getRunUrl() {
     try {
       if (typeof window !== "undefined") {
-        return `${window.location.origin}/compute/run.sh`;
+        return `${window.location.origin}/api/compute/run.sh`;
       }
     } catch {}
-    return "https://www.indianode.com/compute/run.sh";
+    return "https://www.indianode.com/api/compute/run.sh";
   }
   const [mintOpen, setMintOpen] = useState(false);
   const [mintToken, setMintToken] = useState("");
@@ -367,7 +367,7 @@ deployment:
             <div>
               <h1 className="text-2xl font-bold leading-tight">CPU Compute on demand</h1>
               <p className="text-sm text-gray-600">
-                Copy provider-bound SDLs or pay per minute and redeem via <code className="font-mono">/compute/run.sh</code>.
+                Copy provider-bound SDLs or pay per minute and redeem via <code className="font-mono">/api/compute/run.sh</code>.
               </p>
             </div>
 
