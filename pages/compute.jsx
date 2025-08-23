@@ -4,7 +4,7 @@ import Head from "next/head";
 import Script from "next/script";
 import Link from "next/link";
 
-// --- GA helper: safe no-op if gtag isn't ready
+// GA helper
 const gaEvent = (name, params = {}) => {
   try {
     if (typeof window !== "undefined" && window.gtag) {
@@ -13,24 +13,24 @@ const gaEvent = (name, params = {}) => {
   } catch {}
 };
 
-// --- Small modal component (same style as landing)
+// Reusable compact modal (same logic, tighter UI)
 function Modal({ open, onClose, children, title = "Next steps" }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-2xl mx-4 rounded-2xl bg-white shadow-xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b">
-          <h3 className="font-semibold text-lg">{title}</h3>
+      <div className="relative w-full max-w-2xl mx-2 rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <h3 className="font-semibold text-base">{title}</h3>
           <button
             onClick={onClose}
-            className="rounded-lg p-2 hover:bg-gray-100"
+            className="rounded-md p-1.5 hover:bg-gray-100"
             aria-label="Close"
           >
             ✕
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="p-4">{children}</div>
       </div>
     </div>
   );
@@ -46,11 +46,11 @@ export default function Compute() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
 
-  // Toggles (kept intact)
+  // Optional USD
   const enablePayPal =
     String(process.env.NEXT_PUBLIC_ENABLE_PAYPAL || "0") === "1";
 
-  // FX (INR->USD) — same as landing
+  // FX
   const [fx, setFx] = useState(0.012);
   useEffect(() => {
     fetch("/api/fx")
@@ -59,61 +59,25 @@ export default function Compute() {
       .catch(() => {});
   }, []);
 
-  // Promo: TRY / TRY10 => ₹5 off total
+  // Promo
   const PROMO_OFF_INR = 5;
   const promoCode = (promo || "").trim().toUpperCase();
   const promoActive = promoCode === "TRY" || promoCode === "TRY10";
 
-  // 6 SKUs (kept simple; labels/layout synced with landing look)
+  // 6 SKUs (unchanged)
   const items = useMemo(
     () => [
-      {
-        sku: "cpu2x4",
-        name: "Compute Small",
-        desc: "2 vCPU • 4 GiB RAM",
-        cpuUnits: 2,
-        mem: "4Gi",
-      },
-      {
-        sku: "cpu4x8",
-        name: "Compute Medium",
-        desc: "4 vCPU • 8 GiB RAM",
-        cpuUnits: 4,
-        mem: "8Gi",
-      },
-      {
-        sku: "cpu8x16",
-        name: "Compute Large",
-        desc: "8 vCPU • 16 GiB RAM",
-        cpuUnits: 8,
-        mem: "16Gi",
-      },
-      {
-        sku: "redis",
-        name: "Redis Cache",
-        desc: "redis:7-alpine • 2 vCPU • 4 GiB",
-        cpuUnits: 2,
-        mem: "4Gi",
-      },
-      {
-        sku: "nginx",
-        name: "Static HTTP",
-        desc: "nginx:alpine • 1 vCPU • 1 GiB",
-        cpuUnits: 1,
-        mem: "1Gi",
-      },
-      {
-        sku: "generic",
-        name: "Generic Job",
-        desc: "Alpine shell • bring your command",
-        cpuUnits: 1,
-        mem: "1Gi",
-      },
+      { sku: "cpu2x4", name: "Compute Small", desc: "2 vCPU • 4 GiB", cpuUnits: 2, mem: "4Gi" },
+      { sku: "cpu4x8", name: "Compute Medium", desc: "4 vCPU • 8 GiB", cpuUnits: 4, mem: "8Gi" },
+      { sku: "cpu8x16", name: "Compute Large", desc: "8 vCPU • 16 GiB", cpuUnits: 8, mem: "16Gi" },
+      { sku: "redis", name: "Redis Cache", desc: "redis:7-alpine • 2 vCPU • 4 GiB", cpuUnits: 2, mem: "4Gi" },
+      { sku: "nginx", name: "Static HTTP", desc: "nginx:alpine • 1 vCPU • 1 GiB", cpuUnits: 1, mem: "1Gi" },
+      { sku: "generic", name: "Generic Job", desc: "Alpine shell • bring your cmd", cpuUnits: 1, mem: "1Gi" },
     ],
     []
   );
 
-  // Price base (₹) for 60 minutes per SKU (adjust freely without changing backend)
+  // Prices (unchanged)
   const price60 = {
     cpu2x4: 60,
     cpu4x8: 100,
@@ -122,8 +86,6 @@ export default function Compute() {
     nginx: 40,
     generic: 30,
   };
-
-  // Helpers
   function priceInrFor(sku, mins) {
     const base = price60[sku] || 0;
     const m = Math.max(1, Number(mins || 60));
@@ -136,7 +98,7 @@ export default function Compute() {
     return Math.round((val + Number.EPSILON) * 100) / 100;
   }
 
-  // Build run.sh URL (same trick we used on landing)
+  // run.sh URL + modal command builder (unchanged behavior)
   function getRunUrl() {
     try {
       if (typeof window !== "undefined") {
@@ -145,23 +107,17 @@ export default function Compute() {
     } catch {}
     return "https://www.indianode.com/compute/run.sh";
   }
-
-  // Modal for mint/redeem
   const [mintOpen, setMintOpen] = useState(false);
   const [mintToken, setMintToken] = useState("");
-  const [mintCmd, setMintCmd] = useState(""); // macOS/Linux
-  const [mintCmdWin, setMintCmdWin] = useState(""); // Windows
-
-  // Auto OS tab
+  const [mintCmd, setMintCmd] = useState("");
+  const [mintCmdWin, setMintCmdWin] = useState("");
   const [osTab, setOsTab] = useState("linux");
   useEffect(() => {
     if (typeof navigator !== "undefined") {
       const ua = navigator.userAgent.toLowerCase();
-      if (ua.includes("windows")) setOsTab("windows");
-      else setOsTab("linux");
+      setOsTab(ua.includes("windows") ? "windows" : "linux");
     }
   }, []);
-
   function buildCommands(token) {
     const url = getRunUrl();
     const posix = `export ORDER_TOKEN='${token}'
@@ -171,7 +127,7 @@ curl -fsSL ${url} | bash`;
     return { posix, win };
   }
 
-  // --- API helpers (compute namespace)
+  // API helpers (unchanged endpoints)
   async function createOrderCompute({ product, minutes, userEmail }) {
     const r = await fetch("/api/compute/order", {
       method: "POST",
@@ -179,19 +135,10 @@ curl -fsSL ${url} | bash`;
       body: JSON.stringify({ product, minutes, userEmail, promo }),
     });
     const data = await r.json();
-    if (!r.ok) {
-      throw new Error(data?.error || "order_failed");
-    }
+    if (!r.ok) throw new Error(data?.error || "order_failed");
     return data;
   }
-
-  async function mintAfterPaymentCompute({
-    paymentId,
-    product,
-    minutes,
-    email,
-    promo,
-  }) {
+  async function mintAfterPaymentCompute({ paymentId, product, minutes, email, promo }) {
     const r = await fetch("/api/compute/mint", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -205,11 +152,11 @@ curl -fsSL ${url} | bash`;
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j?.error || "token_mint_failed");
-    return j; // { token: "v1.…" }
+    return j;
   }
 
-  // --- Payments (Razorpay + optional PayPal) — unchanged semantics
-  async function payWithRazorpay({ product, displayName, priceInr }) {
+  // Payments (unchanged logic)
+  async function payWithRazorpay({ product, displayName }) {
     try {
       setMsg("");
       setLoading(true);
@@ -217,27 +164,16 @@ curl -fsSL ${url} | bash`;
       if (!userEmail) {
         setMsg("Tip: add your email so we can send your run command + receipt.");
       }
-
       const order = await createOrderCompute({ product, minutes, userEmail });
-
       const valueInr = Number(((order.amount || 0) / 100).toFixed(2));
       gaEvent("begin_checkout", {
         value: valueInr,
         currency: order.currency || "INR",
         coupon: promoCode || undefined,
-        items: [
-          {
-            item_id: product,
-            item_name: displayName,
-            item_category: "compute",
-            quantity: 1,
-            price: valueInr,
-          },
-        ],
+        items: [{ item_id: product, item_name: displayName, item_category: "compute", quantity: 1, price: valueInr }],
         minutes: Number(minutes),
         payment_method: "razorpay",
       });
-
       const options = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_xxxxxx",
         amount: order.amount,
@@ -246,12 +182,7 @@ curl -fsSL ${url} | bash`;
         name: "Indianode Cloud",
         description: `Compute: ${displayName} (${minutes} min)`,
         prefill: userEmail ? { email: userEmail } : undefined,
-        notes: {
-          minutes: String(minutes),
-          product,
-          email: userEmail,
-          promo: promoCode,
-        },
+        notes: { minutes: String(minutes), product, email: userEmail, promo: promoCode },
         theme: { color: "#111827" },
         handler: async (response) => {
           try {
@@ -262,45 +193,29 @@ curl -fsSL ${url} | bash`;
               email: userEmail,
               promo,
             });
-
             const token = result?.token || "";
             if (!token) throw new Error("no_token");
-
             const { posix, win } = buildCommands(token);
             setMintToken(token);
             setMintCmd(posix);
             setMintCmdWin(win);
             setMintOpen(true);
-
             gaEvent("purchase", {
               transaction_id: response.razorpay_payment_id,
               value: valueInr,
               currency: order.currency || "INR",
               coupon: promoCode || undefined,
-              items: [
-                {
-                  item_id: product,
-                  item_name: displayName,
-                  item_category: "compute",
-                  quantity: 1,
-                  price: valueInr,
-                },
-              ],
+              items: [{ item_id: product, item_name: displayName, item_category: "compute", quantity: 1, price: valueInr }],
               minutes: Number(minutes),
               payment_method: "razorpay",
             });
           } catch (e) {
-            alert(
-              "Could not mint ORDER_TOKEN (" + (e.message || "token_mint_failed") + ")"
-            );
+            alert("Could not mint ORDER_TOKEN (" + (e.message || "token_mint_failed") + ")");
           }
         },
       };
-
       const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", (resp) =>
-        alert(resp?.error?.description || "Payment failed")
-      );
+      rzp.on("payment.failed", (resp) => alert(resp?.error?.description || "Payment failed"));
       rzp.open();
     } catch (e) {
       alert(e.message || "Something went wrong");
@@ -319,26 +234,15 @@ curl -fsSL ${url} | bash`;
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.error || "paypal_create_failed");
-
       const valueUsd = Number(Number(amountUsd || 0).toFixed(2));
       gaEvent("begin_checkout", {
         value: valueUsd,
         currency: "USD",
         coupon: promoCode || undefined,
-        items: [
-          {
-            item_id: product,
-            item_name: displayName || product,
-            item_category: "compute",
-            quantity: 1,
-            price: valueUsd,
-          },
-        ],
+        items: [{ item_id: product, item_name: displayName || product, item_category: "compute", quantity: 1, price: valueUsd }],
         minutes: Number(minutes),
         payment_method: "paypal",
       });
-
-      // NOTE: purchase event should be sent on PayPal success route after capture
       window.location.href = j.approveUrl;
     } catch (e) {
       alert(e.message || "PayPal error");
@@ -347,9 +251,8 @@ curl -fsSL ${url} | bash`;
     }
   }
 
-  // SDL builder (provider-bound examples). Users click "Copy SDL".
+  // SDLs (unchanged behavior)
   function sdlFor(sku) {
-    // All SDLS bound to org: indianode. Adjust as needed.
     const common = (image, cpuUnits, mem) => `version: "2.0"
 services:
   app:
@@ -376,7 +279,6 @@ deployment:
       profile: app
       count: 1
 `;
-
     switch (sku) {
       case "cpu2x4":
         return common("alpine:latest", 2, "4Gi");
@@ -422,16 +324,12 @@ deployment:
 `;
     }
   }
-
   async function copySDL(sku) {
     try {
       await navigator.clipboard.writeText(sdlFor(sku));
       setMsg("SDL copied to clipboard!");
-      setTimeout(() => setMsg(""), 2500);
-      gaEvent("select_content", {
-        content_type: "button",
-        item_id: `copy_sdl_${sku}`,
-      });
+      setTimeout(() => setMsg(""), 2000);
+      gaEvent("select_content", { content_type: "button", item_id: `copy_sdl_${sku}` });
     } catch {
       alert("Could not copy SDL. Please copy manually.");
     }
@@ -443,7 +341,7 @@ deployment:
         <title>Compute — Indianode</title>
         <meta
           name="description"
-          content="CPU & memory compute on demand. Pay per minute, get a redeem token or deploy with Akash SDL you can copy."
+          content="CPU & memory compute on demand. Pay per minute, copy provider-bound SDLs, redeem with a one-time token."
         />
         <link rel="canonical" href="https://www.indianode.com/compute" />
       </Head>
@@ -451,86 +349,76 @@ deployment:
       <div className="min-h-screen bg-gray-50 text-gray-900">
         <Script src="https://checkout.razorpay.com/v1/checkout.js" />
 
-        {/* Header (same as landing) */}
-        <header className="p-6 bg-gray-900 text-white">
+        {/* Compact header */}
+        <header className="px-4 py-3 bg-gray-900 text-white">
           <div className="max-w-6xl mx-auto flex items-center justify-between">
-            <div className="text-xl font-bold tracking-tight">Indianode GPU Cloud</div>
-            <nav className="text-sm space-x-4">
-              <Link href="/" className="hover:underline">
-                Home
-              </Link>
-              <Link href="/compute" className="hover:underline">
-                Compute
-              </Link>
-              <Link href="/storage" className="hover:underline">
-                Storage
-              </Link>
+            <div className="text-lg font-semibold tracking-tight">Indianode Cloud</div>
+            <nav className="text-xs space-x-3">
+              <Link href="/" className="hover:underline">Home</Link>
+              <Link href="/compute" className="hover:underline">Compute</Link>
+              <Link href="/storage" className="hover:underline">Storage</Link>
             </nav>
           </div>
         </header>
 
-        <main className="p-8 max-w-6xl mx-auto">
-          <h1 className="text-3xl font-bold mb-2 text-center">
-            CPU Compute on demand • Pay-per-minute
-          </h1>
-          <p className="text-center mb-6 text-lg">
-            Choose a preset or copy its provider-bound SDL. Redeem tokens run via{" "}
-            <code className="font-mono">/compute/run.sh</code>.
-          </p>
+        {/* Main compressed to fit one screen */}
+        <main className="max-w-6xl mx-auto px-4 pt-4 pb-2">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold leading-tight">CPU Compute on demand</h1>
+              <p className="text-sm text-gray-600">
+                Copy provider-bound SDLs or pay per minute and redeem via <code className="font-mono">/compute/run.sh</code>.
+              </p>
+            </div>
 
-          {/* Buyer inputs — same pattern as landing */}
-          <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow p-6 mb-8">
-            <div className="grid md:grid-cols-3 gap-4">
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold mb-1">
-                  Your email (for receipts)
-                </span>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="border rounded-lg px-3 py-2"
-                  disabled={loading}
-                />
-              </label>
-
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold mb-1">Minutes</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="480"
-                  value={minutes}
-                  onChange={(e) =>
-                    setMinutes(Math.max(1, Number(e.target.value || 1)))
-                  }
-                  className="border rounded-lg px-3 py-2"
-                  disabled={loading}
-                />
-              </label>
-
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold mb-1">Promo code</span>
-                <input
-                  value={promo}
-                  onChange={(e) => setPromo(e.target.value)}
-                  placeholder="TRY / TRY10"
-                  className="border rounded-lg px-3 py-2"
-                  disabled={loading}
-                />
-              </label>
+            {/* Buyer inputs as a compact toolbar */}
+            <div className="bg-white rounded-xl shadow border px-3 py-2">
+              <div className="grid grid-cols-3 gap-2 items-end">
+                <label className="flex flex-col">
+                  <span className="text-[11px] font-semibold">Email</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="border rounded-md px-2 py-1 text-sm"
+                    disabled={loading}
+                  />
+                </label>
+                <label className="flex flex-col">
+                  <span className="text-[11px] font-semibold">Minutes</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="480"
+                    value={minutes}
+                    onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
+                    className="border rounded-md px-2 py-1 text-sm"
+                    disabled={loading}
+                  />
+                </label>
+                <label className="flex flex-col">
+                  <span className="text-[11px] font-semibold">Promo</span>
+                  <input
+                    value={promo}
+                    onChange={(e) => setPromo(e.target.value)}
+                    placeholder="TRY / TRY10"
+                    className="border rounded-md px-2 py-1 text-sm"
+                    disabled={loading}
+                  />
+                </label>
+              </div>
             </div>
           </div>
 
           {msg && (
-            <div className="max-w-xl mx-auto mb-6 text-center text-sm text-emerald-800 bg-emerald-100 border border-emerald-200 rounded-xl px-4 py-2">
+            <div className="mt-2 text-center text-xs text-emerald-800 bg-emerald-100 border border-emerald-200 rounded-lg px-3 py-1.5">
               {msg}
             </div>
           )}
 
-          {/* Cards — EXACTLY like landing style; ONLY “Copy SDL” + payments */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* 6 compact cards: 2 rows x 3 cols typically */}
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
             {items.map((item) => {
               const inr = priceInrFor(item.sku, minutes);
               const usd = priceUsdFromInr(inr);
@@ -538,85 +426,61 @@ deployment:
               const offUsd = promoActive ? priceUsdFromInr(PROMO_OFF_INR) : 0;
 
               return (
-                <div
-                  key={item.sku}
-                  className="bg-white shadow-lg rounded-2xl p-6 flex flex-col justify-between"
-                >
+                <div key={item.sku} className="bg-white border rounded-2xl shadow p-4 flex flex-col justify-between">
                   <div>
-                    <h2 className="text-xl font-bold mb-2">{item.name}</h2>
-                    <p className="text-gray-600 mb-3">{item.desc}</p>
+                    <div className="flex items-center justify-between">
+                      <h2 className="text-base font-semibold">{item.name}</h2>
+                      <span className="text-[11px] text-gray-500">
+                        Base ₹{price60[item.sku] || 0}/60m
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 mt-1">{item.desc}</p>
 
-                    <p className="text-gray-800">
-                      <span className="font-semibold">
-                        Price for {minutes} min:
-                      </span>{" "}
+                    <p className="mt-2 text-sm">
+                      <span className="font-medium">For {minutes} min:</span>{" "}
                       ₹{inr} / ${usd.toFixed(2)}
                     </p>
-
                     {promoActive && (
-                      <p className="text-xs text-green-700 mt-1">
-                        Includes promo: −₹{offInr} (≈${offUsd.toFixed(2)})
+                      <p className="text-[11px] text-green-700 mt-0.5">
+                        Promo −₹{offInr} (≈${offUsd.toFixed(2)})
                       </p>
                     )}
-
-                    <p className="text-xs text-gray-500 mt-1">
-                      (Base: ₹{price60[item.sku] || 0} for 60 min)
-                    </p>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-2 mt-4">
-                    {/* Copy SDL — stays */}
+                  <div className="grid gap-2 mt-3">
                     <button
                       onClick={() => copySDL(item.sku)}
-                      className="rounded-xl bg-slate-800 hover:bg-slate-900 text-white px-4 py-2"
+                      className="rounded-lg bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 text-sm"
+                      title="Copy provider-bound SDL to clipboard"
                     >
                       Copy SDL
                     </button>
 
-                    {/* INR payment — unchanged semantics */}
                     <button
-                      className={`text-white px-4 py-2 rounded-xl ${
-                        loading
-                          ? "bg-gray-400 cursor-not-allowed"
-                          : "bg-indigo-600 hover:bg-indigo-700"
+                      className={`text-white px-3 py-1.5 text-sm rounded-lg ${
+                        loading ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
                       }`}
                       onClick={() =>
-                        payWithRazorpay({
-                          product: item.sku,
-                          displayName: item.name,
-                          priceInr: inr,
-                        })
+                        payWithRazorpay({ product: item.sku, displayName: item.name })
                       }
                       disabled={loading}
                     >
-                      Pay ₹{inr} • Razorpay (INR)
+                      Pay ₹{inr} • Razorpay
                     </button>
 
-                    {/* USD PayPal — optional */}
                     {enablePayPal && (
                       <button
-                        className={`text-white px-4 py-2 rounded-xl ${
-                          loading
-                            ? "bg-gray-400 cursor-not-allowed"
-                            : "bg-slate-700 hover:bg-slate-800"
+                        className={`text-white px-3 py-1.5 text-sm rounded-lg ${
+                          loading ? "bg-gray-400 cursor-not-allowed" : "bg-slate-700 hover:bg-slate-800"
                         }`}
                         onClick={() =>
-                          payWithPayPal({
-                            product: item.sku,
-                            amountUsd: usd,
-                            displayName: item.name,
-                          })
+                          payWithPayPal({ product: item.sku, amountUsd: usd, displayName: item.name })
                         }
                         disabled={loading}
                       >
-                        Pay ${usd.toFixed(2)} • PayPal (USD)
+                        Pay ${usd.toFixed(2)} • PayPal
                       </button>
                     )}
-
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Billed in INR via Razorpay. USD shown is approximate. Use{" "}
-                      <b>Copy SDL</b> to paste into your Akash deploy if you prefer.
-                    </p>
                   </div>
                 </div>
               );
@@ -624,43 +488,29 @@ deployment:
           </div>
         </main>
 
-        {/* Footer — same as landing */}
-        <footer className="p-6 text-center text-sm text-gray-600">
-          <nav className="mb-2 space-x-4">
-            <Link href="/" className="text-blue-600 hover:underline">
-              Home
-            </Link>
-            <Link href="/compute" className="text-blue-600 hover:underline">
-              Compute
-            </Link>
-            <Link href="/storage" className="text-blue-600 hover:underline">
-              Storage
-            </Link>
+        {/* Compact footer */}
+        <footer className="px-4 py-3 text-center text-xs text-gray-600">
+          <nav className="mb-1 space-x-3">
+            <Link href="/" className="text-blue-600 hover:underline">Home</Link>
+            <Link href="/compute" className="text-blue-600 hover:underline">Compute</Link>
+            <Link href="/storage" className="text-blue-600 hover:underline">Storage</Link>
           </nav>
           © {new Date().getFullYear()} Indianode
         </footer>
       </div>
 
-      {/* Mint modal — identical pattern to landing */}
-      <Modal
-        open={mintOpen}
-        onClose={() => setMintOpen(false)}
-        title="Payment verified — run this command"
-      >
-        <div className="space-y-3">
+      {/* Mint modal (unchanged logic, compact UI) */}
+      <Modal open={mintOpen} onClose={() => setMintOpen(false)} title="Payment verified — run this command">
+        <div className="space-y-2">
           <p className="text-sm text-gray-700">
-            We minted a one-time <b>ORDER_TOKEN</b>. Run the command below from
-            your own machine (not the Akash host VM).
+            We minted a one-time <b>ORDER_TOKEN</b>. Run the command below from your own machine (not the Akash host VM).
           </p>
 
-          {/* OS tabs */}
-          <div className="flex gap-2 text-xs">
+          <div className="flex gap-2 text-[11px]">
             <button
               onClick={() => setOsTab("linux")}
-              className={`px-3 py-1 rounded-lg border ${
-                osTab === "linux"
-                  ? "bg-gray-900 text-white border-gray-900"
-                  : "bg-white text-gray-800 border-gray-200"
+              className={`px-2.5 py-1 rounded border ${
+                osTab === "linux" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800 border-gray-200"
               }`}
               title="macOS / Linux (bash or zsh)"
             >
@@ -668,10 +518,8 @@ deployment:
             </button>
             <button
               onClick={() => setOsTab("windows")}
-              className={`px-3 py-1 rounded-lg border ${
-                osTab === "windows"
-                  ? "bg-gray-900 text-white border-gray-900"
-                  : "bg-white text-gray-800 border-gray-200"
+              className={`px-2.5 py-1 rounded border ${
+                osTab === "windows" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800 border-gray-200"
               }`}
               title="Windows PowerShell"
             >
@@ -685,19 +533,17 @@ deployment:
 
           <div className="flex gap-2">
             <button
-              className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-xl"
+              className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-sm"
               onClick={async () => {
                 try {
-                  await navigator.clipboard.writeText(
-                    osTab === "windows" ? mintCmdWin : mintCmd
-                  );
+                  await navigator.clipboard.writeText(osTab === "windows" ? mintCmdWin : mintCmd);
                 } catch {}
               }}
             >
               Copy command
             </button>
             <button
-              className="bg-gray-200 hover:bg-gray-300 text-gray-900 px-4 py-2 rounded-xl"
+              className="bg-gray-200 hover:bg-gray-300 text-gray-900 px-3 py-1.5 rounded-lg text-sm"
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(mintToken);
@@ -707,16 +553,6 @@ deployment:
               Copy token only
             </button>
           </div>
-
-          <details className="text-xs text-gray-600">
-            <summary className="cursor-pointer font-semibold">
-              What about time limits?
-            </summary>
-            <p className="mt-1">
-              Your token encodes the SKU and minutes you purchased. Our worker
-              enforces the duration. Extra usage requires another token.
-            </p>
-          </details>
         </div>
       </Modal>
     </>
