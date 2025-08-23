@@ -2,37 +2,69 @@
 const KV_URL   = process.env.KV_REST_API_URL;
 const KV_TOKEN = process.env.KV_REST_API_TOKEN;
 
-function authOk(req) {
-  const h = req.headers || {};
-  const bearer = (h.authorization || "").replace(/^Bearer\s+/i, "");
-  const xpk = h["x-provider-key"] || "";
-  const supplied = String(bearer || xpk || "");
-  return (supplied && supplied === (process.env.COMPUTE_PROVIDER_KEY || ""));
-}
 async function kvGet(key) {
-  const r = await fetch(`${KV_URL}/get/${encodeURIComponent(key)}`, { method:"POST", headers:{ Authorization:`Bearer ${KV_TOKEN}` }});
-  const j = await r.json(); return j?.result || null;
+  try {
+    const r = await fetch(`${KV_URL}/get/${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${KV_TOKEN}` },
+      cache: "no-store",
+    });
+    const text = await r.text();
+    // Try shapes: {result: "<json>"} or raw "<json>"
+    try {
+      const j = JSON.parse(text);
+      if (j && typeof j === "object" && "result" in j) {
+        return j.result ? JSON.parse(j.result) : null;
+      }
+      return j;
+    } catch {
+      return text ? JSON.parse(text) : null;
+    }
+  } catch {
+    return null;
+  }
 }
-async function kvSet(key, val) {
-  await fetch(`${KV_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(val)}`, { method:"POST", headers:{ Authorization:`Bearer ${KV_TOKEN}` }});
+
+async function kvSet(key, value) {
+  await fetch(`${KV_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${KV_TOKEN}` },
+  }).catch(() => {});
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ ok:false, error:"method_not_allowed" });
-  if (!authOk(req)) return res.status(401).json({ ok:false, error:"unauthorized" });
+  if (req.method !== "POST") {
+    res.setHeader("Allow", ["POST"]);
+    return res.status(405).json({ ok: false, error: "method_not_allowed" });
+  }
 
-  const { id, status, message, eta } = req.body || {};
-  if (!id) return res.status(400).json({ ok:false, error:"missing_id" });
+  try {
+    const { id, status = "running", message = "" } =
+      (typeof req.body === "object" && req.body) ? req.body : {};
 
-  const raw = await kvGet(`compute:status:${id}`);
-  if (!raw) return res.status(404).json({ ok:false, error:"not_found" });
+    if (!id) return res.status(400).json({ ok: false, error: "missing_id" });
+    const key = `compute:status:${id}`;
 
-  const cur = JSON.parse(raw);
-  if (status) cur.status = status;
-  if (message) cur.message = message;
-  if (eta) cur.eta = eta;
-  cur.ts = Date.now();
+    const prev = await kvGet(key);
+    const now  = Date.now();
 
-  await kvSet(`compute:status:${id}`, JSON.stringify(cur));
-  return res.status(200).json({ ok:true });
+    // Try to capture worker IP for convenience
+    const fwd = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+    const workerIp = fwd || (req.socket?.remoteAddress || "");
+
+    const next = {
+      ...(prev || {}),
+      OK: true,
+      id,
+      status,                  // e.g. "running"
+      message,
+      worker: workerIp || (prev?.worker || ""),
+      updatedAt: now,
+      startedAt: prev?.startedAt || now,
+    };
+
+    await kvSet(key, JSON.stringify(next));
+    return res.status(200).json({ ok: true });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: "progress_exception", detail: String(e) });
+  }
 }
