@@ -13,15 +13,14 @@ const gaEvent = (name, params = {}) => {
   } catch {}
 };
 
-// --- SDL factory (provider-bound, all distinct) ---
+// --- SDL factory (distinct, provider-bound) ---
 function sdlFor(key) {
-  const header = (title) => `# Indianode provider-bound SDL — ${title}
+  const banner = (title) => `# Indianode provider-bound SDL — ${title}
 # Bound to org: indianode
 `;
 
-  switch (key) {
-    case "whisper":
-      return `${header("Whisper (ASR)")}
+  if (key === "whisper") {
+    return `${banner("Whisper (ASR)")}
 version: "2.0"
 services:
   app:
@@ -49,9 +48,10 @@ deployment:
       profile: app
       count: 1
 `;
+  }
 
-    case "sd":
-      return `${header("Stable Diffusion (WebUI)")}
+  if (key === "sd") {
+    return `${banner("Stable Diffusion (WebUI)")}
 version: "2.0"
 services:
   app:
@@ -79,10 +79,10 @@ deployment:
       profile: app
       count: 1
 `;
+  }
 
-    case "llama":
-    default:
-      return `${header("LLaMA Inference (llama.cpp server)")}
+  // llama (default)
+  return `${banner("LLaMA Inference (llama.cpp server)")}
 version: "2.0"
 services:
   app:
@@ -110,55 +110,46 @@ deployment:
       profile: app
       count: 1
 `;
-  }
 }
 
-// Small helper: copy text → clipboard
+// clipboard helper (with fallback)
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
-    return false;
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
 
 export default function GPUPage() {
   const cards = [
-    {
-      key: "whisper",
-      emoji: "🎙️",
-      title: "Whisper (ASR)",
-      blurb: "Speech-to-text on GPU with whisper.cpp",
-    },
-    {
-      key: "sd",
-      emoji: "🎨",
-      title: "Stable Diffusion",
-      blurb: "Text-to-image (WebUI) on a single GPU",
-    },
-    {
-      key: "llama",
-      emoji: "🦙",
-      title: "LLaMA Inference",
-      blurb: "Serve LLMs via llama.cpp server",
-    },
+    { key: "whisper", emoji: "🎙️", title: "Whisper (ASR)", blurb: "Speech-to-text via whisper.cpp" },
+    { key: "sd",      emoji: "🎨", title: "Stable Diffusion", blurb: "Text-to-image WebUI on GPU" },
+    { key: "llama",   emoji: "🦙", title: "LLaMA Inference",  blurb: "Serve LLMs with llama.cpp" },
   ];
-
-  const [copiedKey, setCopiedKey] = useState("");
+  const [copied, setCopied] = useState("");
 
   async function onCopySDL(key) {
-    const sdl = sdlFor(key);
-    const ok = await copyText(sdl);
+    const ok = await copyText(sdlFor(key));
     if (ok) {
-      setCopiedKey(key);
-      gaEvent("select_content", {
-        content_type: "button",
-        item_id: `copy_sdl_${key}`,
-      });
-      setTimeout(() => setCopiedKey(""), 2000);
+      setCopied(key);
+      gaEvent("select_content", { content_type: "button", item_id: `copy_sdl_${key}` });
+      setTimeout(() => setCopied(""), 1800);
     } else {
-      alert("Could not copy. Please try again.");
+      alert("Could not copy to clipboard. Please try again.");
     }
   }
 
@@ -166,76 +157,68 @@ export default function GPUPage() {
     <>
       <Head>
         <title>GPU SDLs — Indianode</title>
-        <meta
-          name="description"
-          content="Provider-bound Akash SDLs for Whisper, Stable Diffusion, and LLaMA on Indianode."
-        />
+        <meta name="description" content="Provider-bound Akash SDLs for Whisper, Stable Diffusion, and LLaMA on Indianode." />
         <link rel="canonical" href="https://www.indianode.com/gpu" />
         <meta property="og:title" content="GPU SDLs — Indianode" />
-        <meta
-          property="og:description"
-          content="Copy ready-to-use provider-bound Akash SDLs for GPU workloads."
-        />
+        <meta property="og:description" content="Copy ready-to-use provider-bound Akash SDLs for GPU workloads." />
         <meta property="og:type" content="website" />
       </Head>
 
       <SiteChrome>
-        {/* Hero — compact, single-screen */}
-        <section className="max-w-6xl mx-auto px-4 pt-6 pb-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
+        {/* Hero (tight, matches compute spacing) */}
+        <section className="max-w-6xl mx-auto px-4 pt-6 pb-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
                 Provider-bound GPU SDLs
               </h1>
-              <p className="text-gray-600 mt-1">
-                Copy an Akash SDL pre-bound to <code className="px-1 py-0.5 rounded bg-gray-100">org: indianode</code>.
+              <p className="text-gray-600 mt-1 text-sm md:text-base">
+                Ready Akash manifests bound to <span className="inline-block rounded-md px-2 py-0.5 bg-gray-100 font-mono text-xs">org: indianode</span>.
               </p>
             </div>
-            <div className="hidden md:flex items-center gap-3">
-              <Link
-                href="/"
-                className="text-sm px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50"
-              >
-                ← Back to Home
-              </Link>
-              <Link
-                href="/compute"
-                className="text-sm px-3 py-2 rounded-xl bg-gray-900 text-white hover:bg-black"
-              >
+            <div className="hidden md:flex items-center gap-2 shrink-0">
+              <Link href="/compute" className="text-sm px-3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50">
                 CPU / Queue
+              </Link>
+              <Link href="/" className="text-sm px-3 py-2 rounded-xl bg-gray-900 text-white hover:bg-black">
+                Home
               </Link>
             </div>
           </div>
         </section>
 
-        {/* Cards — tight grid, single-screen friendly */}
-        <section className="max-w-6xl mx-auto px-4 pb-8">
+        {/* Cards (single-screen friendly) */}
+        <section className="max-w-6xl mx-auto px-4 pb-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {cards.map((c) => (
               <div
                 key={c.key}
-                className="rounded-2xl border border-gray-200 bg-white p-5 flex flex-col"
+                className="group rounded-2xl border border-gray-200 bg-white p-5 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow"
               >
-                <div className="flex items-center gap-3 mb-2">
+                <div className="flex items-center gap-3">
                   <div className="text-2xl">{c.emoji}</div>
-                  <h2 className="text-lg font-semibold">{c.title}</h2>
+                  <div className="min-w-0">
+                    <h2 className="text-base md:text-lg font-semibold leading-tight">{c.title}</h2>
+                    <p className="text-xs text-gray-500">Bound to <span className="font-mono">org: indianode</span></p>
+                  </div>
                 </div>
-                <p className="text-sm text-gray-600 mb-4">{c.blurb}</p>
 
-                <div className="mt-auto flex items-center gap-2">
+                <p className="text-sm text-gray-600 mt-3">{c.blurb}</p>
+
+                <div className="mt-4 flex items-center gap-2">
                   <button
                     onClick={() => onCopySDL(c.key)}
                     className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm hover:bg-emerald-700"
                     title="Copy provider-bound SDL to clipboard"
                   >
-                    {copiedKey === c.key ? "Copied ✓" : "Copy SDL"}
+                    {copied === c.key ? "Copied ✓" : "Copy SDL"}
                   </button>
 
                   <details className="ml-auto text-xs text-gray-600">
                     <summary className="cursor-pointer select-none py-1 px-2 rounded-lg hover:bg-gray-50">
                       Preview
                     </summary>
-                    <pre className="mt-2 p-3 bg-gray-900 text-gray-100 rounded-lg text-[11px] overflow-x-auto max-h-56">
+                    <pre className="mt-2 p-3 bg-gray-900 text-gray-100 rounded-lg text-[11px] overflow-x-auto max-h-44">
 {`${sdlFor(c.key)}`}
                     </pre>
                   </details>
@@ -244,9 +227,9 @@ export default function GPUPage() {
             ))}
           </div>
 
-          {/* Small note — keep concise to fit one screen */}
-          <p className="text-xs text-gray-500 mt-3">
-            Tip: Paste the SDL into your Akash manifest file, then deploy with your preferred tooling.
+          {/* Tiny hint to keep within one screen height */}
+          <p className="text-xs text-gray-500 mt-2">
+            Paste the SDL into your Akash manifest and deploy with your usual tooling.
           </p>
         </section>
       </SiteChrome>
