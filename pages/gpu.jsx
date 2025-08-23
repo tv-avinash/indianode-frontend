@@ -37,7 +37,7 @@ function Modal({ open, onClose, children, title = "Next steps" }) {
 }
 
 export default function GPU() {
-  const RS = "\u20B9"; // Rupee symbol (safe)
+  const RS = "\u20B9"; // Rupee
 
   // Status (available/busy)
   const [status, setStatus] = useState("checking...");
@@ -69,7 +69,7 @@ export default function GPU() {
       .catch(() => {});
   }, []);
 
-  // Products (unchanged)
+  // Products
   const products = useMemo(
     () => [
       { key: "whisper", name: "Whisper ASR", desc: "Speech-to-text on GPU" },
@@ -79,7 +79,7 @@ export default function GPU() {
     []
   );
 
-  // Pricing (per 60 min, in INR) - same as landing
+  // Pricing (per 60 min, in INR)
   const price60 = { whisper: 100, sd: 200, llama: 300 };
 
   // Promo
@@ -132,19 +132,36 @@ curl -fsSL ${url} | bash`;
     return { posix, win };
   }
 
-  // API helpers (GPU namespace)
+  // ---------- API helpers (point to working /api/order) ----------
+  async function parseJsonSafe(res) {
+    // Avoid "Unexpected end of JSON input"
+    const text = await res.text();
+    try {
+      return text ? JSON.parse(text) : {};
+    } catch {
+      return { _raw: text };
+    }
+  }
+
   async function createOrderGPU({ product, minutes, userEmail }) {
-    const r = await fetch("/api/gpu/order", {
+    const res = await fetch("/api/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ product, minutes, userEmail, promo }),
     });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data?.error || "order_failed");
+    const data = await parseJsonSafe(res);
+    if (!res.ok) {
+      const msg =
+        data?.error ||
+        data?._raw ||
+        `order_failed (status ${res.status})`;
+      throw new Error(msg);
+    }
     return data;
   }
+
   async function mintAfterPaymentGPU({ paymentId, product, minutes, email, promo }) {
-    const r = await fetch("/api/gpu/mint", {
+    const res = await fetch("/api/gpu/mint", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -155,10 +172,17 @@ curl -fsSL ${url} | bash`;
         promo: (promo || "").trim(),
       }),
     });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j?.error || "token_mint_failed");
-    return j; // { token: "v1...." }
+    const data = await parseJsonSafe(res);
+    if (!res.ok) {
+      const msg =
+        data?.error ||
+        data?._raw ||
+        `token_mint_failed (status ${res.status})`;
+      throw new Error(msg);
+    }
+    return data; // { token: "v1...." }
   }
+  // ---------------------------------------------------------------
 
   // Payments
   async function payWithRazorpay({ product, displayName }) {
@@ -238,13 +262,13 @@ curl -fsSL ${url} | bash`;
   async function payWithPayPal({ product, amountUsd, displayName }) {
     try {
       setLoading(true);
-      const r = await fetch("/api/paypal/create-order", {
+      const res = await fetch("/api/paypal/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ product, minutes, amountUsd }),
       });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error || "paypal_create_failed");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "paypal_create_failed");
 
       const valueUsd = Number(Number(amountUsd || 0).toFixed(2));
       gaEvent("begin_checkout", {
@@ -256,7 +280,7 @@ curl -fsSL ${url} | bash`;
         payment_method: "paypal",
       });
 
-      window.location.href = j.approveUrl; // capture handled on success page
+      window.location.href = data.approveUrl; // capture handled on success page
     } catch (e) {
       alert(e.message || "PayPal error");
     } finally {
@@ -271,7 +295,6 @@ curl -fsSL ${url} | bash`;
 services:
   whisper:
     image: ghcr.io/ggerganov/whisper.cpp:latest
-    # Expose a simple HTTP port (adjust if your container starts a server)
     expose:
       - port: 8080
         as: 80
@@ -308,7 +331,6 @@ deployment:
 services:
   webui:
     image: pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
-    # Typical Stable Diffusion WebUI port
     expose:
       - port: 7860
         as: 80
@@ -345,7 +367,6 @@ deployment:
 services:
   llama:
     image: pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
-    # LLM server example port
     expose:
       - port: 8000
         as: 80
@@ -403,7 +424,7 @@ deployment:
       <div className="min-h-screen bg-gray-50 text-gray-900">
         <Script src="https://checkout.razorpay.com/v1/checkout.js" />
 
-        {/* Compact header to match landing/compute */}
+        {/* Header */}
         <header className="px-4 py-3 bg-gray-900 text-white">
           <div className="max-w-6xl mx-auto flex items-center justify-between">
             <div className="text-lg font-semibold tracking-tight">Indianode Cloud</div>
@@ -416,7 +437,7 @@ deployment:
           </div>
         </header>
 
-        {/* Main compressed to fit one screen */}
+        {/* Main */}
         <main className="max-w-6xl mx-auto px-4 pt-4 pb-2">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -484,7 +505,7 @@ deployment:
             </div>
           )}
 
-          {/* 3 compact cards */}
+          {/* Cards */}
           <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
             {products.map((p) => {
               const inr = priceInrFor(p.key, minutes);
@@ -551,7 +572,7 @@ deployment:
           </div>
         </main>
 
-        {/* Compact footer */}
+        {/* Footer */}
         <footer className="px-4 py-3 text-center text-xs text-gray-600">
           <nav className="mb-1 space-x-3">
             <Link href="/" className="text-blue-600 hover:underline">Home</Link>
@@ -563,7 +584,7 @@ deployment:
         </footer>
       </div>
 
-      {/* Mint modal with OS-specific commands */}
+      {/* Mint modal */}
       <Modal open={mintOpen} onClose={() => setMintOpen(false)} title="Payment verified - run this command">
         <div className="space-y-2">
           <p className="text-sm text-gray-700">
