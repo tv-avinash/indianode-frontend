@@ -1,19 +1,14 @@
 // pages/api/gpu/run.sh.js
-// Serves a bash script that reads ORDER_TOKEN and calls /api/gpu/redeem
-
 export default function handler(req, res) {
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "method_not_allowed" });
   }
 
-  // Build absolute origin for any domain/preview
-  const host =
-    req.headers["x-forwarded-host"] || req.headers.host || "www.indianode.com";
+  const host = req.headers["x-forwarded-host"] || req.headers.host || "www.indianode.com";
   const proto = (req.headers["x-forwarded-proto"] || "https").split(",")[0];
   const origin = `${proto}://${host}`;
 
-  // NOTE: we escape ${...} as \${...} so JS doesn't interpolate it
   const script = `#!/usr/bin/env bash
 set -euo pipefail
 
@@ -39,15 +34,13 @@ resp=$(curl -sS -X POST '${origin}/api/gpu/redeem' \\
 printf "%s" "$resp"
 echo
 
-# Friendly line if backend already returns JSON only:
 if echo "$resp" | grep -q '"queued"'; then
   echo "[✓] Token accepted. Your GPU job has been queued."
 else
   echo "[!] Unexpected response above."
 fi
 `;
-
   res.setHeader("Content-Type", "text/x-shellscript; charset=utf-8");
   res.setHeader("Cache-Control", "no-store, max-age=0");
-  return res.status(200).send(script);
+  res.status(200).send(script);
 }
