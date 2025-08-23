@@ -1,61 +1,105 @@
 // components/SiteChrome.jsx
 import Link from "next/link";
 
-function Logo({ className = "h-7 w-7" }) {
+/** Small inline logo that hints at “nodes + compute” */
+function BrandMark({ className = "h-6 w-6" }) {
   return (
-    <svg viewBox="0 0 64 64" className={className} aria-hidden="true">
+    <svg
+      viewBox="0 0 64 64"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden="true"
+    >
+      {/* node orbs */}
+      <circle cx="12" cy="32" r="6" fill="#7C3AED" />
+      <circle cx="52" cy="20" r="6" fill="#22D3EE" />
+      <circle cx="44" cy="48" r="6" fill="#34D399" />
+      {/* links */}
+      <path
+        d="M18 31.5L46 20M18 33l26 14"
+        stroke="url(#g1)"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
       <defs>
-        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#22d3ee" />
-          <stop offset="100%" stopColor="#6366f1" />
+        <linearGradient id="g1" x1="12" y1="20" x2="52" y2="48" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#22D3EE" />
+          <stop offset="1" stopColor="#34D399" />
         </linearGradient>
       </defs>
-      <circle cx="32" cy="12" r="5" fill="url(#g)" />
-      <rect x="29" y="20" width="6" height="26" rx="3" fill="url(#g)" />
-      <circle cx="14" cy="42" r="5" fill="#0ea5e9" />
-      <circle cx="50" cy="42" r="5" fill="#8b5cf6" />
-      <path d="M19 41 L29 35" stroke="#0ea5e9" strokeWidth="3" strokeLinecap="round" />
-      <path d="M45 41 L35 35" stroke="#8b5cf6" strokeWidth="3" strokeLinecap="round" />
     </svg>
   );
 }
 
-export default function SiteChrome({ title, children, subtle = false }) {
+export default function SiteChrome({ children }) {
   return (
-    <div className="relative min-h-screen overflow-hidden bg-slate-950 text-white">
-      {/* subtle gradient background */}
-      <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-1/3 -left-1/3 h-[60rem] w-[60rem] rounded-full bg-cyan-500/10 blur-[140px]" />
-        <div className="absolute -bottom-1/3 -right-1/3 h-[60rem] w-[60rem] rounded-full bg-indigo-500/10 blur-[140px]" />
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-[#0b1220] via-[#0a1230] to-[#0b1220]">
+      {/* Top bar */}
+      <header className="sticky top-0 z-40 border-b border-white/10 backdrop-blur">
+        <div className="mx-auto max-w-7xl px-5 py-4 flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-2 text-white">
+            <BrandMark className="h-6 w-6" />
+            <span className="font-bold tracking-wide">INDIANODE</span>
+          </Link>
 
-      <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-6 pt-6">
-        <Link href="/" className="flex items-center gap-3">
-          <Logo className="h-8 w-8" />
-          <span className="text-lg font-bold tracking-wide">INDIANODE</span>
-        </Link>
-
-        <nav className="flex items-center gap-4 text-sm text-white/80">
-          <Link href="/gpu" className="hover:text-white">GPU</Link>
-          <Link href="/compute" className="hover:text-white">Compute</Link>
-          <Link href="/storage" className="hover:text-white">Storage</Link>
-          <Link href="/sdls" className="hidden sm:inline hover:text-white">SDLs</Link>
-        </nav>
+          <nav className="hidden md:flex items-center gap-6 text-sm">
+            <Link
+              href="/gpu"
+              className="text-white/80 hover:text-white transition-colors"
+            >
+              GPU
+            </Link>
+            <Link
+              href="/compute"
+              className="text-white/80 hover:text-white transition-colors"
+            >
+              Compute
+            </Link>
+            <Link
+              href="/storage"
+              className="text-white/80 hover:text-white transition-colors"
+            >
+              Storage
+            </Link>
+            <Link
+              href="/sdls"
+              className="text-white/80 hover:text-white transition-colors"
+            >
+              SDLs
+            </Link>
+          </nav>
+        </div>
       </header>
 
-      <main className={`relative z-10 mx-auto ${subtle ? "max-w-5xl" : "max-w-6xl"} px-6 py-8`}>
-        {title ? (
-          <div className="mb-6 text-center">
-            <h1 className="text-3xl font-extrabold tracking-tight sm:text-4xl">
-              {title}
-            </h1>
-          </div>
-        ) : null}
+      {/* Page content (make sure text is dark INSIDE white cards) */}
+      <main className="max-w-7xl mx-auto px-5 pb-14 text-gray-900">
         {children}
       </main>
 
-      <footer className="relative z-10 mx-auto max-w-6xl px-6 pb-8 pt-2 text-center text-xs text-white/60">
-        © {new Date().getFullYear()} Indianode
+      {/* Footer */}
+      <footer className="border-t border-white/10">
+        <div className="mx-auto max-w-7xl px-5 py-8 flex flex-col md:flex-row items-center justify-between gap-4 text-sm">
+          <div className="flex items-center gap-2 text-white/80">
+            <BrandMark className="h-5 w-5" />
+            <span>© {new Date().getFullYear()} Indianode</span>
+          </div>
+
+          <div className="flex items-center gap-5">
+            <Link href="/compute" className="text-white/70 hover:text-white">
+              Compute
+            </Link>
+            <Link href="/storage" className="text-white/70 hover:text-white">
+              Storage
+            </Link>
+            <Link href="/gpu" className="text-white/70 hover:text-white">
+              GPU
+            </Link>
+            <Link href="/sdls" className="text-white/70 hover:text-white">
+              SDLs
+            </Link>
+          </div>
+        </div>
       </footer>
     </div>
   );
