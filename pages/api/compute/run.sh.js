@@ -1,23 +1,30 @@
-// pages/api/compute/run.sh.js
-export const config = { api: { bodyParser: false } };
+// Serve a plain-text shell script so PowerShell treats it as text, not byte[]
+export default function handler(req, res) {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
 
-export default async function handler(req, res) {
-  const base = process.env.NEXT_PUBLIC_BASE_URL || "https://www.indianode.com";
+  const BASE = process.env.PUBLIC_BASE || 'https://www.indianode.com';
+
   const script = `#!/usr/bin/env bash
 set -euo pipefail
-if [ -z "\${ORDER_TOKEN:-}" ]; then
-  echo "[!] Please set ORDER_TOKEN first, then run:"
-  echo "    ORDER_TOKEN='<your token>' bash -lc \\"curl -fsSL ${base}/api/compute/run.sh | bash\\""
-  exit 1
-fi
+
 echo "[*] Redeeming token with backend..."
-curl -sS -X POST '${base}/api/compute/redeem' \\
-  -H 'Content-Type: application/json' \\
-  -d '{ "token": "'"\${ORDER_TOKEN}"'" }'
-echo
-echo "[?] Token accepted. Your compute job has been queued."
+if [ -z "\${ORDER_TOKEN:-}" ]; then
+  echo "[!] ORDER_TOKEN not set"; exit 1
+fi
+
+# Call your existing redeem endpoint for compute
+resp=$(curl -sS -X POST "${BASE}/api/compute/redeem" \
+  -H "Content-Type: application/json" \
+  -d "{\"token\":\"${ORDER_TOKEN}\"}" || true)
+
+echo "$resp"
+
+# Optional: basic sanity check
+echo "$resp" | grep -q '"queued":true' && \
+  echo "[✓] Token accepted. Your compute job has been queued." || \
+  echo "[!] Unexpected response above."
 `;
-  res.setHeader("Content-Type", "text/x-shellscript; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache");
+
   res.status(200).send(script);
 }
