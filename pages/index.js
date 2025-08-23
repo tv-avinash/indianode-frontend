@@ -1,53 +1,31 @@
-// pages/index.js
-import { useEffect, useState } from "react";
+// pages/index.jsx
 import Head from "next/head";
 import Link from "next/link";
+import { useEffect, useState } from "react";
 
-/** Minimal inline SVG logo: “I” made of connected nodes */
-function IndianodeLogo({ className = "h-10 w-auto" }) {
+// Minimal inline logo that hints “nodes + India”
+function Logo({ className = "h-7 w-7" }) {
   return (
-    <svg
-      viewBox="0 0 220 48"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-label="Indianode"
-    >
-      {/* Node network behind the glyph */}
-      <g opacity="0.15" stroke="currentColor" strokeWidth="1.4" fill="none">
-        <path d="M10 28 L30 10 L55 22 L80 9 L105 18 L130 8 L155 16 L180 7 L205 16" />
-        <circle cx="10" r="3" cy="28" />
-        <circle cx="30" r="3" cy="10" />
-        <circle cx="55" r="3" cy="22" />
-        <circle cx="80" r="3" cy="9" />
-        <circle cx="105" r="3" cy="18" />
-        <circle cx="130" r="3" cy="8" />
-        <circle cx="155" r="3" cy="16" />
-        <circle cx="180" r="3" cy="7" />
-        <circle cx="205" r="3" cy="16" />
-      </g>
-
-      {/* Stylized “I” */}
-      <rect x="8" y="8" width="12" height="32" rx="6" fill="currentColor" />
-
-      {/* Wordmark */}
-      <text
-        x="28"
-        y="32"
-        fontFamily="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial"
-        fontSize="24"
-        fontWeight="700"
-        letterSpacing="0.5"
-        fill="currentColor"
-      >
-        Indianode
-      </text>
+    <svg viewBox="0 0 64 64" className={className} aria-hidden="true">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#22d3ee" />
+          <stop offset="100%" stopColor="#6366f1" />
+        </linearGradient>
+      </defs>
+      {/* dot over an “i” + network nodes */}
+      <circle cx="32" cy="12" r="5" fill="url(#g)" />
+      <rect x="29" y="20" width="6" height="26" rx="3" fill="url(#g)" />
+      <circle cx="14" cy="42" r="5" fill="#0ea5e9" />
+      <circle cx="50" cy="42" r="5" fill="#8b5cf6" />
+      <path d="M19 41 L29 35" stroke="#0ea5e9" strokeWidth="3" strokeLinecap="round" />
+      <path d="M45 41 L35 35" stroke="#8b5cf6" strokeWidth="3" strokeLinecap="round" />
     </svg>
   );
 }
 
 export default function Landing() {
   const [status, setStatus] = useState("checking…");
-
   useEffect(() => {
     fetch("/api/status")
       .then((r) => r.json())
@@ -55,120 +33,86 @@ export default function Landing() {
       .catch(() => setStatus("offline"));
   }, []);
 
-  const gpuBusy = status !== "available";
+  const busy = status !== "available";
 
   return (
     <>
       <Head>
-        <title>Indianode — CPU/RAM Compute & Persistent Storage on Akash</title>
+        <title>Indianode — GPU • Compute • Storage</title>
         <meta
           name="description"
-          content="Spin up CPU/RAM workers or persistent NVMe storage. Akash-locked SDLs for on-chain deploys and one-line run.sh for off-chain jobs."
+          content="Pay-per-minute GPU (3090), CPU/RAM compute, and same-host NVMe storage. Ready SDLs for Akash + simple token-based runner."
         />
         <link rel="canonical" href="https://www.indianode.com/" />
-        {/* OG */}
-        <meta property="og:title" content="Indianode — Compute & Storage" />
+        <meta property="og:title" content="Indianode — GPU • Compute • Storage" />
         <meta
           property="og:description"
-          content="Monetize idle CPU/RAM/NVMe or buy short jobs. Works with Akash and one-time cards."
+          content="Run AI and services on-demand: GPU 3090, CPU/RAM, and NVMe storage. Works with Akash or your own host."
         />
         <meta property="og:type" content="website" />
         <meta property="og:url" content="https://www.indianode.com/" />
         <meta name="twitter:card" content="summary_large_image" />
-        {/* JSON-LD */}
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              "@context": "https://schema.org",
-              "@type": "Organization",
-              name: "Indianode",
-              url: "https://www.indianode.com",
-              logo: "https://www.indianode.com/icon.png",
-            }),
-          }}
-        />
       </Head>
 
-      {/* Full-screen hero */}
-      <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-900 text-white">
-        {/* Subtle grid */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-20"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 1px 1px, rgba(255,255,255,.15) 1px, transparent 1px)",
-            backgroundSize: "22px 22px",
-          }}
-        />
+      <div className="relative min-h-screen overflow-hidden bg-slate-950 text-white">
+        {/* subtle gradient background */}
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -top-1/3 -left-1/3 h-[60rem] w-[60rem] rounded-full bg-cyan-500/10 blur-[140px]" />
+          <div className="absolute -bottom-1/3 -right-1/3 h-[60rem] w-[60rem] rounded-full bg-indigo-500/10 blur-[140px]" />
+        </div>
 
-        {/* Glow */}
-        <div
-          aria-hidden
-          className="absolute -top-40 -left-32 h-80 w-80 rounded-full blur-3xl"
-          style={{ background: "radial-gradient(closest-side, #7c3aed50, transparent)" }}
-        />
-        <div
-          aria-hidden
-          className="absolute -bottom-40 -right-32 h-96 w-96 rounded-full blur-3xl"
-          style={{ background: "radial-gradient(closest-side, #22d3ee40, transparent)" }}
-        />
+        <header className="relative z-10 mx-auto flex max-w-6xl items-center justify-between px-6 pt-6">
+          <Link href="/" className="flex items-center gap-3">
+            <Logo className="h-8 w-8" />
+            <span className="text-lg font-bold tracking-wide">INDIANODE</span>
+          </Link>
 
-        {/* Nav */}
-        <header className="relative z-10">
-          <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
-            <div className="flex items-center gap-3 text-indigo-100">
-              <IndianodeLogo className="h-9 w-auto text-white/95" />
-              <span className="hidden md:inline text-sm text-white/60">
-                CPU • RAM • NVMe on Akash
-              </span>
-            </div>
-
-            <nav className="flex items-center gap-4 text-sm">
-              <Link href="/compute" className="hover:text-cyan-200">
-                Compute
-              </Link>
-              <Link href="/storage" className="hover:text-cyan-200">
-                Storage
-              </Link>
-              <Link href="/sdls" className="hidden sm:inline hover:text-cyan-200">
-                SDLs
-              </Link>
-            </nav>
-          </div>
+          <nav className="flex items-center gap-4 text-sm text-white/80">
+            <Link href="/gpu" className="hover:text-white">
+              GPU
+            </Link>
+            <Link href="/compute" className="hover:text-white">
+              Compute
+            </Link>
+            <Link href="/storage" className="hover:text-white">
+              Storage
+            </Link>
+            <Link href="/sdls" className="hidden sm:inline hover:text-white">
+              SDLs
+            </Link>
+          </nav>
         </header>
 
-        {/* Center hero content */}
-        <main className="relative z-10">
-          <div className="mx-auto grid max-w-6xl gap-8 px-6 pt-6 md:pt-10">
-            <div className="text-center mx-auto max-w-3xl">
-              <h1 className="text-4xl md:text-6xl font-black tracking-tight leading-tight">
-                Run <span className="text-cyan-300">Compute</span> &{" "}
-                <span className="text-indigo-300">Storage</span> in one click
-              </h1>
-              <p className="mt-4 text-lg text-white/80">
-                Pay-per-minute CPU/RAM jobs & persistent NVMe volumes. Use our
-                Akash-locked SDLs or a one-line script — same host, same speed.
-              </p>
-
-              {/* Status pill */}
-              <div className="mt-5 inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-sm text-white/90">
-                <span
-                  className={`inline-block h-2.5 w-2.5 rounded-full ${
-                    gpuBusy ? "bg-amber-400" : "bg-emerald-400"
-                  }`}
-                />
-                GPU status: {gpuBusy ? "busy / queued" : "available"}
+        <main className="relative z-10 mx-auto flex max-w-6xl flex-1 items-center px-6 py-10">
+          <section className="mx-auto w-full">
+            <div className="mx-auto max-w-3xl text-center">
+              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-white/80">
+                <span className="inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                GPU Status:{" "}
+                <b className={`ml-1 ${busy ? "text-amber-300" : "text-emerald-300"}`}>
+                  {status}
+                </b>
               </div>
 
-              {/* CTAs */}
-              <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+              <h1 className="text-balance text-4xl font-extrabold tracking-tight sm:text-5xl">
+                Run AI & services on-demand —
+                <span className="bg-gradient-to-r from-cyan-300 via-sky-300 to-indigo-300 bg-clip-text text-transparent">
+                  {" "}
+                  GPU • Compute • Storage
+                </span>
+              </h1>
+
+              <p className="mx-auto mt-3 max-w-2xl text-pretty text-base text-white/75 sm:text-lg">
+                3090 GPU minutes, CPU/RAM jobs and NVMe volumes. Works inside Akash or
+                outside with a one-line redeem command. No lock-in.
+              </p>
+
+              <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
                 <Link
-                  href="/compute"
-                  className="group inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-slate-900 font-semibold hover:bg-cyan-100"
+                  href="/gpu"
+                  className="group inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 font-semibold text-slate-900 hover:bg-cyan-50"
                 >
-                  Launch Compute
+                  Start GPU (3090)
                   <svg
                     className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1"
                     viewBox="0 0 20 20"
@@ -180,55 +124,37 @@ export default function Landing() {
                 </Link>
 
                 <Link
+                  href="/compute"
+                  className="inline-flex items-center justify-center rounded-2xl border border-white/20 px-6 py-3 font-semibold text-white hover:bg-white/10"
+                >
+                  CPU / RAM Compute
+                </Link>
+
+                <Link
                   href="/storage"
-                  className="inline-flex items-center justify-center rounded-2xl border border-white/25 px-6 py-3 font-semibold text-white hover:bg-white/10"
+                  className="inline-flex items-center justify-center rounded-2xl border border-white/20 px-6 py-3 font-semibold text-white hover:bg-white/10"
                 >
                   Persistent Storage
                 </Link>
               </div>
 
-              {/* quick links row */}
-              <div className="mt-4 text-sm text-white/70">
-                Prefer Akash? Use{" "}
-                <Link href="/sdls" className="underline decoration-dotted hover:text-white">
-                  ready-to-use SDLs
-                </Link>
-                .
+              {/* quick badges */}
+              <div className="mt-8 grid grid-cols-1 gap-3 text-xs text-white/70 sm:grid-cols-3">
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  Ready SDLs for Whisper, SD, LLM
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  Token-based runs with minute caps
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  INR Razorpay + global PayPal
+                </div>
               </div>
             </div>
-
-            {/* Features (compact row, still fits on one screen) */}
-            <div className="mx-auto grid max-w-5xl grid-cols-1 gap-3 sm:grid-cols-3 text-sm">
-              <div className="rounded-2xl bg-white/5 p-4 backdrop-blur">
-                <p className="font-semibold">One-line jobs</p>
-                <p className="text-white/80">
-                  Pay, get an <code className="text-cyan-200">ORDER_TOKEN</code>,
-                  run <code className="text-cyan-200">run.sh</code>. That’s it.
-                </p>
-              </div>
-              <div className="rounded-2xl bg-white/5 p-4 backdrop-blur">
-                <p className="font-semibold">Akash-locked</p>
-                <p className="text-white/80">
-                  SDLs pinned to our node for predictable placement & pricing.
-                </p>
-              </div>
-              <div className="rounded-2xl bg-white/5 p-4 backdrop-blur">
-                <p className="font-semibold">Fair billing</p>
-                <p className="text-white/80">
-                  Card for short jobs, AKT on the marketplace for long runs.
-                </p>
-              </div>
-            </div>
-          </div>
+          </section>
         </main>
 
-        {/* Footer (inside the fold; still single screen on common laptop sizes) */}
-        <footer className="relative z-10 mt-10 px-6 pb-8 text-center text-xs text-white/60">
-          <nav className="mb-2 space-x-4">
-            <Link href="/compute" className="hover:text-white">Compute</Link>
-            <Link href="/storage" className="hover:text-white">Storage</Link>
-            <Link href="/sdls" className="hover:text-white">SDLs</Link>
-          </nav>
+        <footer className="relative z-10 mx-auto max-w-6xl px-6 pb-8 pt-2 text-center text-xs text-white/60">
           © {new Date().getFullYear()} Indianode
         </footer>
       </div>
