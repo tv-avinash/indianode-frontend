@@ -1,96 +1,119 @@
+// pages/storage.jsx
 import { useEffect, useMemo, useState } from "react";
-import Script from "next/script";
 import Head from "next/head";
-import Link from "next/link";
-import SiteChrome from "../components/SiteChrome";
+import Script from "next/script";
 
 const gaEvent = (name, params = {}) => {
   try {
-    if (typeof window !== "undefined" && window.gtag) {
-      window.gtag("event", name, params);
-    }
+    if (typeof window !== "undefined" && window.gtag) window.gtag("event", name, params);
   } catch {}
 };
 
-const getRunUrl = () => {
-  try {
-    if (typeof window !== "undefined") {
-      return `${window.location.origin}/storage/run.sh`;
-    }
-  } catch {}
-  return "https://www.indianode.com/storage/run.sh";
-};
+const DEPLOYER = process.env.NEXT_PUBLIC_DEPLOYER_BASE || "https://akash-deployer.vercel.app";
+const ATTR_KEY = process.env.NEXT_PUBLIC_PROVIDER_ATTR_KEY || "org";
+const ATTR_VAL = process.env.NEXT_PUBLIC_PROVIDER_ATTR_VALUE || "indianode";
+
+// NVMe SKUs (match your backend)
+const SKUS = [
+  { sku: "nvme200",  title: "NVMe Storage • 200 Gi", baseInr60: 49,  sizeGi: 200 },
+  { sku: "nvme500",  title: "NVMe Storage • 500 Gi", baseInr60: 99,  sizeGi: 500 },
+  { sku: "nvme1tb",  title: "NVMe Storage • 1 TiB",  baseInr60: 149, sizeGi: 1024 },
+];
+
+// simple persistent-volume SDL (Akash v2: storage profile)
+function sdlForSize(sizeGi) {
+  return `version: "2.0"
+services:
+  app:
+    image: debian:stable-slim
+    command:
+      - /bin/sh
+      - -lc
+      - "sleep infinity"
+    resources:
+      cpu:
+        units: 1
+      memory:
+        size: 1Gi
+      storage:
+        - size: 1Gi
+    params:
+      storage:
+        data: ${sizeGi}Gi
+    mounts:
+      - volume: data
+        path: /data
+profiles:
+  compute:
+    app: {}
+  storage:
+    data:
+      size: ${sizeGi}Gi
+      attributes:
+        persistent: true
+  placement:
+    anywhere:
+      attributes:
+        ${ATTR_KEY}: ${ATTR_VAL}
+      pricing:
+        app:
+          denom: uakt
+          amount: 50
+deployment:
+  app:
+    anywhere:
+      profile: app
+      count: 1
+`;
+}
+
+function getRunUrl() {
+  if (typeof window !== "undefined") return `${window.location.origin}/api/storage/run.sh`;
+  return "https://www.indianode.com/api/storage/run.sh";
+}
 
 export default function Storage() {
-  const [status, setStatus] = useState("checking...");
-  const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [minutes, setMinutes] = useState(60);
   const [promo, setPromo] = useState("");
   const [fx, setFx] = useState(0.012);
+  const [loading, setLoading] = useState(false);
 
-  const [mintOpen, setMintOpen] = useState(false);
-  const [cmdLinux, setCmdLinux] = useState("");
-  const [cmdWin, setCmdWin] = useState("");
-  const [tokenStr, setTokenStr] = useState("");
+  // Mint modal
+  const [open, setOpen] = useState(false);
   const [osTab, setOsTab] = useState("linux");
-
-  const enablePayPal =
-    String(process.env.NEXT_PUBLIC_ENABLE_PAYPAL || "0") === "1";
+  const [cmdPosix, setCmdPosix] = useState("");
+  const [cmdWin, setCmdWin] = useState("");
+  const [mintToken, setMintToken] = useState("");
 
   useEffect(() => {
-    fetch("/api/fx")
-      .then((r) => r.json())
-      .then((j) => setFx(Number(j.rate) || 0.012))
-      .catch(() => {});
-  }, []);
-  useEffect(() => {
-    fetch("/api/status")
-      .then((r) => r.json())
-      .then((j) => setStatus(j.status || "offline"))
-      .catch(() => setStatus("offline"));
-  }, []);
-  useEffect(() => {
-    if (typeof navigator !== "undefined") {
-      const ua = navigator.userAgent.toLowerCase();
-      setOsTab(ua.includes("windows") ? "windows" : "linux");
-    }
+    fetch("/api/fx").then(r => r.json()).then(j => setFx(Number(j.rate) || 0.012)).catch(()=>{});
+    if (typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("windows")) setOsTab("windows");
   }, []);
 
-  const busy = status !== "available";
-
-  const plans = useMemo(
-    () => [
-      { key: "nvme200", name: "200 GiB NVMe", base: 40, desc: "Burst, scratch, small datasets" },
-      { key: "nvme500", name: "500 GiB NVMe", base: 80, desc: "Models, checkpoints" },
-      { key: "nvme1000", name: "1 TiB NVMe", base: 140, desc: "Large corpora, artifacts" },
-    ],
-    []
-  );
-
-  const PROMO_OFF_INR = 5;
+  const items = useMemo(() => SKUS, []);
   const promoCode = (promo || "").trim().toUpperCase();
+  const PROMO_OFF_INR = 5;
   const promoActive = promoCode === "TRY" || promoCode === "TRY10";
 
-  const priceInr = (base, mins) => {
+  function priceInr(base, mins) {
     const m = Math.max(1, Number(mins || 60));
     let total = Math.ceil((base / 60) * m);
     if (promoActive) total = Math.max(1, total - PROMO_OFF_INR);
     return total;
-  };
-  const inrToUsd = (x) => Math.round((x * fx + Number.EPSILON) * 100) / 100;
+  }
+  const usd = (inr) => Math.round((inr * fx + Number.EPSILON) * 100) / 100;
 
   function buildCommands(token) {
     const url = getRunUrl();
-    const linux = `export ORDER_TOKEN='${token}'
+    const posix = `export ORDER_TOKEN='${token}'
 curl -fsSL ${url} | bash`;
     const win = `$env:ORDER_TOKEN = '${token}'
-curl -fsSL ${url} | bash`;
-    return { linux, win };
+(Invoke-WebRequest -UseBasicParsing ${url}).Content | bash`;
+    return { posix, win };
   }
 
-  // --- API helpers (RENAMED) ---
-  async function createStorageOrder({ product, minutes, userEmail }) {
+  async function createOrder({ product, minutes, userEmail }) {
     const r = await fetch("/api/storage/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -105,32 +128,25 @@ curl -fsSL ${url} | bash`;
     const r = await fetch("/api/storage/mint", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        paymentId,
-        product,
-        minutes: Number(minutes),
-        email: (email || "").trim(),
-        promo: (promo || "").trim(),
-      }),
+      body: JSON.stringify({ paymentId, product, minutes, email, promo }),
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j?.error || "token_mint_failed");
     return j;
   }
 
-  async function payWithRazorpay({ product, displayName, priceInrVal }) {
+  async function payRazorpay({ item }) {
     try {
       setLoading(true);
       const userEmail = (email || "").trim();
-
-      const order = await createStorageOrder({ product, minutes, userEmail });
-
+      const order = await createOrder({ product: item.sku, minutes, userEmail });
       const valueInr = Number(((order.amount || 0) / 100).toFixed(2));
+
       gaEvent("begin_checkout", {
         value: valueInr,
         currency: order.currency || "INR",
         coupon: promoCode || undefined,
-        items: [{ item_id: product, item_name: displayName, item_category: "storage", quantity: 1, price: valueInr }],
+        items: [{ item_id: item.sku, item_name: item.title, item_category: "nvme", quantity: 1, price: valueInr }],
         minutes: Number(minutes),
         payment_method: "razorpay",
       });
@@ -140,206 +156,141 @@ curl -fsSL ${url} | bash`;
         amount: order.amount,
         currency: order.currency,
         order_id: order.id,
-        name: "Indianode Storage",
-        description: `Storage token for ${displayName} (${minutes} min)`,
+        name: "Indianode Cloud",
+        description: `Storage: ${item.title} (${minutes} min)`,
         prefill: userEmail ? { email: userEmail } : undefined,
-        notes: { minutes: String(minutes), product, email: userEmail, promo: promoCode },
-        theme: { color: "#0b1220" },
+        notes: { minutes: String(minutes), product: item.sku, email: userEmail, promo: promoCode },
         handler: async (resp) => {
           try {
             const res = await mintStorageToken({
               paymentId: resp.razorpay_payment_id,
-              product,
+              product: item.sku,
               minutes,
               email: userEmail,
               promo,
             });
-            const token = res?.token || "";
-            const { linux, win } = buildCommands(token);
-            setTokenStr(token);
-            setCmdLinux(linux);
+            const token = res?.token;
+            if (!token) throw new Error("no_token");
+            const { posix, win } = buildCommands(token);
+            setMintToken(token);
+            setCmdPosix(posix);
             setCmdWin(win);
-            setMintOpen(true);
+            setOpen(true);
 
             gaEvent("purchase", {
               transaction_id: resp.razorpay_payment_id,
               value: valueInr,
               currency: order.currency || "INR",
               coupon: promoCode || undefined,
-              items: [{ item_id: product, item_name: displayName, item_category: "storage", quantity: 1, price: valueInr }],
+              items: [{ item_id: item.sku, item_name: item.title, item_category: "nvme", quantity: 1, price: valueInr }],
               minutes: Number(minutes),
               payment_method: "razorpay",
             });
           } catch (e) {
-            alert(e.message || "Could not mint token");
+            alert(e.message || "Could not mint ORDER_TOKEN");
           }
         },
       };
 
       const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", (r) => alert(r?.error?.description || "Payment failed"));
+      rzp.on("payment.failed", (e) => alert(e?.error?.description || "Payment Failed"));
       rzp.open();
     } catch (e) {
-      alert(e.message || "Checkout failed");
+      alert(e.message || "Something went wrong");
     } finally {
       setLoading(false);
     }
   }
 
-  async function payWithPayPal({ product, amountUsd }) {
-    try {
-      setLoading(true);
-      const r = await fetch("/api/paypal/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ product, minutes, amountUsd }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j?.error || "paypal_create_failed");
-
-      gaEvent("begin_checkout", {
-        value: Number(Number(amountUsd || 0).toFixed(2)),
-        currency: "USD",
-        coupon: promoCode || undefined,
-        items: [{ item_id: product, item_name: product, item_category: "storage", quantity: 1, price: Number(amountUsd || 0) }],
-        minutes: Number(minutes),
-        payment_method: "paypal",
-      });
-
-      window.location.href = j.approveUrl;
-    } catch (e) {
-      alert(e.message || "PayPal error");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const deployLinkFor = (sizeGi) => {
+    const sdl = sdlForSize(sizeGi);
+    return `${DEPLOYER}?sdl=${encodeURIComponent(sdl)}`;
+  };
 
   return (
     <>
-      <Head>
-        <title>Storage — Indianode</title>
-      </Head>
-
+      <Head><title>Storage — Indianode</title></Head>
       <Script src="https://checkout.razorpay.com/v1/checkout.js" />
-      <SiteChrome active="storage">
-        <div className="max-w-6xl mx-auto p-6">
-          <div className="rounded-2xl bg-gradient-to-br from-emerald-50 to-white border border-emerald-100 p-6 mb-6">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <div>
-                <h1 className="text-2xl font-bold">Same-host NVMe Storage</h1>
-                <p className="text-gray-600">
-                  Status: <span className="font-semibold">{status}</span>{" "}
-                  {busy ? "• provisioning queued" : "• instant provisioning"}
-                </p>
-              </div>
-              <div className="text-sm text-gray-600">
-                <Link className="text-indigo-700 hover:underline" href="/compute">
-                  Need CPU compute?
-                </Link>
-              </div>
-            </div>
-          </div>
 
-          {/* Inputs */}
-          <div className="bg-white rounded-2xl shadow p-5 mb-6">
-            <div className="grid md:grid-cols-3 gap-4">
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold mb-1">Email (optional)</span>
-                <input
-                  className="border rounded-lg px-3 py-2"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  disabled={loading}
-                />
-              </label>
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold mb-1">Minutes</span>
-                <input
-                  className="border rounded-lg px-3 py-2"
-                  type="number"
-                  min="1"
-                  max="240"
-                  value={minutes}
-                  onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
-                  disabled={loading}
-                />
-              </label>
-              <label className="flex flex-col">
-                <span className="text-sm font-semibold mb-1">Promo</span>
-                <input
-                  className="border rounded-lg px-3 py-2"
-                  placeholder="TRY / TRY10"
-                  value={promo}
-                  onChange={(e) => setPromo(e.target.value)}
-                  disabled={loading}
-                />
-              </label>
-            </div>
-          </div>
+      <div className="max-w-7xl mx-auto py-10">
+        <div className="rounded-2xl bg-white/80 backdrop-blur border border-white/20 p-6 mb-6">
+          <h1 className="text-2xl font-bold">Same-host NVMe Storage</h1>
+          <p className="text-sm text-gray-700 mt-1">Attach fast persistent volumes to your Akash lease.</p>
 
-          {/* Plans */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {plans.map((p) => {
-              const inr = priceInr(p.base, minutes);
-              const usd = inrToUsd(inr);
-              return (
-                <div key={p.key} className="bg-white rounded-2xl shadow p-6 flex flex-col justify-between">
-                  <div>
-                    <h2 className="font-bold text-lg">{p.name}</h2>
-                    <p className="text-gray-600 text-sm mb-3">{p.desc}</p>
-                    <p className="text-gray-900">
-                      <span className="font-semibold">Price for {minutes} min:</span> ₹{inr} / ${usd.toFixed(2)}
-                    </p>
-                    {promoActive && (
-                      <p className="text-xs text-green-700 mt-1">Includes promo: −₹{PROMO_OFF_INR} (~${inrToUsd(PROMO_OFF_INR).toFixed(2)})</p>
-                    )}
-                  </div>
-
-                  <div className="mt-4 space-y-2">
-                    <button
-                      onClick={() => payWithRazorpay({ product: p.key, displayName: p.name, priceInrVal: inr })}
-                      className={`w-full text-white px-4 py-2 rounded-xl ${
-                        loading ? "bg-gray-400 cursor-not-allowed" : "bg-emerald-600 hover:bg-emerald-700"
-                      }`}
-                      disabled={loading}
-                    >
-                      Pay ₹{inr} • Razorpay
-                    </button>
-                    {enablePayPal && (
-                      <button
-                        onClick={() => payWithPayPal({ product: p.key, amountUsd: usd })}
-                        className={`w-full text-white px-4 py-2 rounded-xl ${
-                          loading ? "bg-gray-400 cursor-not-allowed" : "bg-slate-700 hover:bg-slate-800"
-                        }`}
-                        disabled={loading}
-                      >
-                        Pay ${usd.toFixed(2)} • PayPal
-                      </button>
-                    )}
-                    <p className="text-[11px] text-gray-500">You’ll get an ORDER_TOKEN to provision storage via a one-liner.</p>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="grid md:grid-cols-3 gap-4 mt-4">
+            <label className="flex flex-col">
+              <span className="text-xs font-semibold mb-1">Email (for receipt)</span>
+              <input className="border rounded-lg px-3 py-2" value={email} onChange={(e)=>setEmail(e.target.value)} placeholder="you@example.com" />
+            </label>
+            <label className="flex flex-col">
+              <span className="text-xs font-semibold mb-1">Minutes</span>
+              <input className="border rounded-lg px-3 py-2" type="number" min={1} max={240} value={minutes} onChange={(e)=>setMinutes(Math.max(1, Number(e.target.value||1)))} />
+            </label>
+            <label className="flex flex-col">
+              <span className="text-xs font-semibold mb-1">Promo</span>
+              <input className="border rounded-lg px-3 py-2" value={promo} onChange={(e)=>setPromo(e.target.value)} placeholder="TRY / TRY10" />
+            </label>
           </div>
         </div>
-      </SiteChrome>
+
+        <div className="grid md:grid-cols-3 gap-6">
+          {items.map((item) => {
+            const inr = priceInr(item.baseInr60, minutes);
+            const sdl = sdlForSize(item.sizeGi);
+            return (
+              <div key={item.sku} className="bg-white rounded-2xl p-6 shadow">
+                <div className="text-xs text-gray-500 mb-1">lock: {ATTR_KEY}={ATTR_VAL}</div>
+                <h3 className="text-lg font-semibold">{item.title}</h3>
+                <p className="text-sm text-gray-700 mt-1">
+                  Price: ₹{inr} <span className="text-gray-400">(base ₹{item.baseInr60}/60m)</span>
+                </p>
+
+                <div className="mt-4 flex flex-col gap-2">
+                  <button
+                    onClick={() => payRazorpay({ item })}
+                    className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2"
+                    disabled={loading}
+                  >
+                    Pay ₹{inr} • Razorpay (INR)
+                  </button>
+
+                  <a
+                    href={deployLinkFor(item.sizeGi)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 text-center"
+                  >
+                    Deploy on Akash (SDL)
+                  </a>
+
+                  <button
+                    onClick={() => navigator.clipboard.writeText(sdl).catch(()=>{})}
+                    className="rounded-xl bg-gray-900 hover:bg-black text-white px-4 py-2"
+                  >
+                    Copy SDL
+                  </button>
+
+                  <p className="text-[11px] text-gray-500">
+                    You’ll receive a one-time ORDER_TOKEN after payment. Run it locally to queue your storage job.
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
 
       {/* Mint modal */}
-      {mintOpen && (
+      {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setMintOpen(false)} />
+          <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
           <div className="relative w-full max-w-2xl mx-4 rounded-2xl bg-white shadow-xl">
             <div className="flex items-center justify-between px-5 py-4 border-b">
-              <h3 className="font-semibold text-lg">Payment verified — run this</h3>
-              <button onClick={() => setMintOpen(false)} className="rounded-lg p-2 hover:bg-gray-100">✕</button>
+              <h3 className="font-semibold text-lg">Payment verified — run this command</h3>
+              <button className="rounded-lg p-2 hover:bg-gray-100" onClick={() => setOpen(false)}>✕</button>
             </div>
             <div className="p-5 space-y-3">
-              <p className="text-sm text-gray-700">
-                We minted a one-time <b>ORDER_TOKEN</b>. Run the command below from your machine.
-              </p>
+              <p className="text-sm text-gray-700">Run from your own machine to queue the storage job.</p>
 
               <div className="flex gap-2 text-xs">
                 <button
@@ -357,28 +308,16 @@ curl -fsSL ${url} | bash`;
               </div>
 
               <div className="bg-gray-900 text-gray-100 rounded-xl p-3 font-mono text-xs overflow-x-auto">
-                {osTab === "windows" ? cmdWin : cmdLinux}
+                {osTab === "windows" ? (cmdWin || "…") : (cmdPosix || "…")}
               </div>
 
               <div className="flex gap-2">
-                <button
-                  className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-xl"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(osTab === "windows" ? cmdWin : cmdLinux);
-                    } catch {}
-                  }}
-                >
+                <button className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-xl"
+                        onClick={() => navigator.clipboard.writeText(osTab === "windows" ? cmdWin : cmdPosix).catch(()=>{})}>
                   Copy command
                 </button>
-                <button
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-900 px-4 py-2 rounded-xl"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(tokenStr);
-                    } catch {}
-                  }}
-                >
+                <button className="bg-gray-200 hover:bg-gray-300 text-gray-900 px-4 py-2 rounded-xl"
+                        onClick={() => navigator.clipboard.writeText(mintToken).catch(()=>{})}>
                   Copy token only
                 </button>
               </div>
