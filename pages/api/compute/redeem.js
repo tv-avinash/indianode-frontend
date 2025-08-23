@@ -1,59 +1,51 @@
 // pages/api/compute/redeem.js
-export const config = { api: { bodyParser: true }, runtime: "nodejs" };
-
 const KV_URL   = process.env.KV_REST_API_URL;
 const KV_TOKEN = process.env.KV_REST_API_TOKEN;
 const RESEND   = process.env.RESEND_API_KEY || "";
-const SECRET   = process.env.COMPUTE_ORDER_TOKEN_SECRET || process.env.ORDER_TOKEN_SECRET || "";
+
+async function kvReq(path, body = null) {
+  const url = `${KV_URL}${path}`;
+  const init = {
+    method: "POST",
+    headers: { Authorization: `Bearer ${KV_TOKEN}` },
+  };
+  if (body != null) {
+    init.body = typeof body === "string" ? body : String(body);
+  }
+  const r = await fetch(url, init);
+  if (!r.ok) {
+    const t = await r.text().catch(() => "");
+    throw new Error(`KV ${path} failed ${r.status}: ${t}`);
+  }
+}
 
 async function kvSet(key, value) {
-  if (!KV_URL || !KV_TOKEN) return;
-  await fetch(`${KV_URL}/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${KV_TOKEN}` },
-  });
+  return kvReq(`/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}`);
 }
-
 async function kvRPush(key, value) {
-  if (!KV_URL || !KV_TOKEN) return;
-  await fetch(`${KV_URL}/rpush/${encodeURIComponent(key)}/${encodeURIComponent(value)}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${KV_TOKEN}` },
-  });
+  return kvReq(`/rpush/${encodeURIComponent(key)}/${encodeURIComponent(value)}`);
 }
 
-// Robust base64url -> utf8
-function b64urlToUtf8(b64u) {
+function fromBase64Url(b64url) {
   try {
-    const clean = String(b64u).replace(/-/g, "+").replace(/_/g, "/");
-    const pad = "=".repeat((4 - (clean.length % 4)) % 4);
-    return Buffer.from(clean + pad, "base64").toString("utf8");
+    let s = String(b64url || "");
+    s = s.replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    return Buffer.from(s, "base64").toString("utf8");
   } catch {
     return "";
   }
 }
 
-function parseToken(token) {
+function parseToken(tok) {
   try {
-    const parts = String(token || "").split(".");
-    if (parts.length < 2) return null;
-
-    const [ver, payloadB64, sig] = parts;
-    if (ver !== "v1" || !payloadB64) return null;
-
-    const json = b64urlToUtf8(payloadB64);
-    if (!json) return null;
-    const data = JSON.parse(json);
-
-    // If we have a secret and a non-placeholder signature, verify HMAC
-    if (SECRET && sig && sig !== "sig") {
-      const crypto = require("crypto");
-      const expected = crypto.createHmac("sha256", SECRET).update(payloadB64).digest("base64url");
-      if (expected !== sig) {
-        // Signature invalid – return a marker so the caller can decide what to do
-        return { __invalidSig: true, ...data };
-      }
-    }
+    const parts = String(tok || "").split(".");
+    if (parts.length < 2) return null;            // must have v1.<payload>[.<sig>]
+    const header = parts[0];
+    if (!/^v1$/.test(header)) return null;        // only v1 supported
+    const payloadJson = fromBase64Url(parts[1]);
+    if (!payloadJson) return null;
+    const data = JSON.parse(payloadJson);
     return data;
   } catch {
     return null;
@@ -76,41 +68,54 @@ async function sendEmail(to, subject, html) {
         html,
       }),
     });
-  } catch {}
+  } catch {
+    /* ignore */
+  }
 }
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
+    res.setHeader("Allow", ["POST"]);
     return res.status(405).json({ ok: false, error: "method_not_allowed" });
   }
 
-  const token = String(req.body?.token || process.env.ORDER_TOKEN || "").trim();
-  if (!token) return res.status(400).json({ ok: false, error: "missing_token" });
-
-  const data = parseToken(token);
-  if (!data) return res.status(400).json({ ok: false, error: "bad_token" });
-  if (data.__invalidSig) {
-    // You can change this to reject if you want strict verification.
-    // For now we accept for backwards-compat with placeholder ".sig" tokens.
-    // return res.status(400).json({ ok: false, error: "invalid_signature" });
+  if (!KV_URL || !KV_TOKEN) {
+    return res.status(500).json({ ok: false, error: "kv_missing" });
   }
 
-  // Accept both "sku" and "product" fields; default to generic.
-  const sku = String(data.sku || data.product || "generic");
+  const token =
+    (req.body && (req.body.token || req.body.ORDER_TOKEN)) ||
+    req.headers["x-order-token"] ||
+    process.env.ORDER_TOKEN ||
+    "";
+
+  const tok = String(token || "").trim();
+  if (!tok) return res.status(400).json({ ok: false, error: "missing_token" });
+
+  const data = parseToken(tok);
+  // Must look like a compute token
+  if (!data || (data.kind && data.kind !== "compute")) {
+    return res.status(400).json({ ok: false, error: "bad_token" });
+  }
+
+  const sku =
+    String(data.sku || data.product || "generic").toLowerCase().trim() || "generic";
   const minutes = Math.max(1, Number(data.minutes || 1));
-  const email = String(data.email || "");
+  const email = (data.email || "").trim();
 
   const id = `job_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+  const now = Date.now();
   const job = {
     id,
     kind: "compute",
     sku,
     minutes,
-    token,
+    token: tok,
     email,
-    enqueuedAt: Date.now(),
+    enqueuedAt: now,
   };
 
+  // enqueue and set status record
   await kvRPush("compute:queue", JSON.stringify(job));
   await kvSet(
     `compute:status:${id}`,
@@ -121,16 +126,17 @@ export default async function handler(req, res) {
       sku,
       minutes,
       email,
-      createdAt: job.enqueuedAt,
+      createdAt: now,
       message: "queued via redeem",
     })
   );
 
+  // notify user if email present
   await sendEmail(
     email,
-    "Job queued",
-    `<p>Your job <b>${id}</b> is queued for ${minutes} min on <b>${sku}</b>.</p>`
-  ).catch(() => {});
+    "Compute job queued",
+    `<p>Your job <b>${id}</b> is queued for <b>${minutes} min</b> on <b>${sku}</b>.</p>`
+  );
 
   return res.status(200).json({ ok: true, queued: true, id });
 }
