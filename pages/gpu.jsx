@@ -27,7 +27,7 @@ function Modal({ open, onClose, children, title = "Next steps" }) {
             className="rounded-md p-1.5 hover:bg-gray-100"
             aria-label="Close"
           >
-            Γ£ò
+            {"\u00D7"}
           </button>
         </div>
         <div className="p-4">{children}</div>
@@ -37,6 +37,8 @@ function Modal({ open, onClose, children, title = "Next steps" }) {
 }
 
 export default function GPU() {
+  const RS = "\u20B9"; // Rupee symbol (safe)
+
   // Status (available/busy)
   const [status, setStatus] = useState("checking...");
   useEffect(() => {
@@ -77,7 +79,7 @@ export default function GPU() {
     []
   );
 
-  // Pricing (per 60 min, in INR) ΓÇö same as landing
+  // Pricing (per 60 min, in INR) - same as landing
   const price60 = { whisper: 100, sd: 200, llama: 300 };
 
   // Promo
@@ -155,7 +157,7 @@ curl -fsSL ${url} | bash`;
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j?.error || "token_mint_failed");
-    return j; // { token: "v1.ΓÇª" }
+    return j; // { token: "v1...." }
   }
 
   // Payments
@@ -315,7 +317,7 @@ deployment:
   return (
     <>
       <Head>
-        <title>GPU ΓÇö Indianode</title>
+        <title>GPU - Indianode</title>
         <meta
           name="description"
           content="GPU on demand for Whisper, SD, and LLaMA. Pay per minute and redeem with a one-time token, or copy provider-bound SDLs."
@@ -421,18 +423,18 @@ deployment:
                     <div className="flex items-center justify-between">
                       <h2 className="text-base font-semibold">{p.name}</h2>
                       <span className="text-[11px] text-gray-500">
-                        Base Γé╣{price60[p.key]}/60m
+                        Base {RS}{price60[p.key]}/60m
                       </span>
                     </div>
                     <p className="text-sm text-gray-600 mt-1">{p.desc}</p>
 
                     <p className="mt-2 text-sm">
                       <span className="font-medium">For {minutes} min:</span>{" "}
-                      Γé╣{inr} / ${usd.toFixed(2)}
+                      {RS}{inr} / ${usd.toFixed(2)}
                     </p>
                     {promoActive && (
                       <p className="text-[11px] text-green-700 mt-0.5">
-                        Promo ΓêÆΓé╣{offInr} (Γëê${offUsd.toFixed(2)})
+                        Promo -{RS}{offInr} (~${offUsd.toFixed(2)})
                       </p>
                     )}
                   </div>
@@ -453,7 +455,7 @@ deployment:
                       onClick={() => payWithRazorpay({ product: p.key, displayName: p.name })}
                       disabled={loading}
                     >
-                      Pay Γé╣{inr} ΓÇó Razorpay
+                      Pay {RS}{inr} {"\u2022"} Razorpay
                     </button>
 
                     {enablePayPal && (
@@ -464,7 +466,7 @@ deployment:
                         onClick={() => payWithPayPal({ product: p.key, amountUsd: usd, displayName: p.name })}
                         disabled={loading}
                       >
-                        Pay ${usd.toFixed(2)} ΓÇó PayPal
+                        Pay ${usd.toFixed(2)} {"\u2022"} PayPal
                       </button>
                     )}
                   </div>
@@ -482,12 +484,12 @@ deployment:
             <Link href="/compute" className="text-blue-600 hover:underline">Compute</Link>
             <Link href="/storage" className="text-blue-600 hover:underline">Storage</Link>
           </nav>
-          ┬⌐ {new Date().getFullYear()} Indianode
+          {"\u00A9"} {new Date().getFullYear()} Indianode
         </footer>
       </div>
 
       {/* Mint modal with OS-specific commands */}
-      <Modal open={mintOpen} onClose={() => setMintOpen(false)} title="Payment verified ΓÇö run this command">
+      <Modal open={mintOpen} onClose={() => setMintOpen(false)} title="Payment verified - run this command">
         <div className="space-y-2">
           <p className="text-sm text-gray-700">
             We minted a one-time <b>ORDER_TOKEN</b>. Run the command below from your own machine (not the Akash host VM).
@@ -515,7 +517,7 @@ deployment:
           </div>
 
           <div className="bg-gray-900 text-gray-100 rounded-xl p-3 font-mono text-xs overflow-x-auto">
-            {osTab === "windows" ? mintCmdWin || "ΓÇª" : mintCmd || "ΓÇª"}
+            {osTab === "windows" ? mintCmdWin || "..." : mintCmd || "..."}
           </div>
 
           <div className="flex gap-2">
