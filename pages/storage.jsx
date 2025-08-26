@@ -19,7 +19,7 @@ const SKUS = [
   { sku: "nvme1tb", title: "NVMe Storage • 1 TiB", baseInr60: 149, sizeGi: 1024 },
 ];
 
-// simple persistent-volume SDL (Akash v2: storage profile)
+// Simple persistent-volume SDL (Akash v2: storage profile)
 function sdlForSize(sizeGi) {
   return `version: "2.0"
 services:
@@ -71,11 +71,39 @@ function getRunUrl() {
   return "https://www.indianode.com/api/storage/run.sh";
 }
 
+// Safe JSON fetch helper so UI doesn't crash on non-JSON responses
+async function fetchJSON(url, opts = {}) {
+  const res = await fetch(url, opts);
+  const ct = res.headers.get("content-type") || "";
+  let data;
+  try {
+    if (ct.includes("application/json")) data = await res.json();
+    else {
+      const txt = await res.text();
+      data = JSON.parse(txt);
+    }
+  } catch {
+    // Fallback: still capture any text body
+    try {
+      data = { raw: await res.text() };
+    } catch {
+      data = {};
+    }
+  }
+  if (!res.ok) {
+    const msg = data?.error || data?.message || res.statusText || "request_failed";
+    const err = new Error(msg);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data ?? {};
+}
+
 export default function Storage() {
   const [email, setEmail] = useState("");
   const [minutes, setMinutes] = useState(60);
   const [promo, setPromo] = useState("");
-  const [fx, setFx] = useState(0.012);
   const [loading, setLoading] = useState(false);
 
   // Mint modal
@@ -86,12 +114,9 @@ export default function Storage() {
   const [mintToken, setMintToken] = useState("");
 
   useEffect(() => {
-    fetch("/api/fx")
-      .then((r) => r.json())
-      .then((j) => setFx(Number(j.rate) || 0.012))
-      .catch(() => {});
-    if (typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("windows"))
+    if (typeof navigator !== "undefined" && navigator.userAgent.toLowerCase().includes("windows")) {
       setOsTab("windows");
+    }
   }, []);
 
   const items = useMemo(() => SKUS, []);
@@ -105,7 +130,6 @@ export default function Storage() {
     if (promoActive) total = Math.max(1, total - PROMO_OFF_INR);
     return total;
   }
-  const usd = (inr) => Math.round((inr * fx + Number.EPSILON) * 100) / 100;
 
   function buildCommands(token) {
     const url = getRunUrl();
@@ -117,25 +141,19 @@ curl -fsSL ${url} | bash`;
   }
 
   async function createOrder({ product, minutes, userEmail }) {
-    const r = await fetch("/api/storage/order", {
+    return fetchJSON("/api/storage/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ product, minutes, userEmail, promo }),
     });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j?.error || "order_failed");
-    return j;
   }
 
   async function mintStorageToken({ paymentId, product, minutes, email, promo }) {
-    const r = await fetch("/api/storage/mint", {
+    return fetchJSON("/api/storage/mint", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ paymentId, product, minutes, email, promo }),
     });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j?.error || "token_mint_failed");
-    return j;
   }
 
   async function payRazorpay({ item }) {
@@ -149,9 +167,7 @@ curl -fsSL ${url} | bash`;
         value: valueInr,
         currency: order.currency || "INR",
         coupon: promoCode || undefined,
-        items: [
-          { item_id: item.sku, item_name: item.title, item_category: "nvme", quantity: 1, price: valueInr },
-        ],
+        items: [{ item_id: item.sku, item_name: item.title, item_category: "nvme", quantity: 1, price: valueInr }],
         minutes: Number(minutes),
         payment_method: "razorpay",
       });
@@ -187,13 +203,12 @@ curl -fsSL ${url} | bash`;
               value: valueInr,
               currency: order.currency || "INR",
               coupon: promoCode || undefined,
-              items: [
-                { item_id: item.sku, item_name: item.title, item_category: "nvme", quantity: 1, price: valueInr },
-              ],
+              items: [{ item_id: item.sku, item_name: item.title, item_category: "nvme", quantity: 1, price: valueInr }],
               minutes: Number(minutes),
               payment_method: "razorpay",
             });
           } catch (e) {
+            console.error("mintStorageToken error:", e);
             alert(e.message || "Could not mint ORDER_TOKEN");
           }
         },
@@ -203,7 +218,8 @@ curl -fsSL ${url} | bash`;
       rzp.on("payment.failed", (e) => alert(e?.error?.description || "Payment Failed"));
       rzp.open();
     } catch (e) {
-      alert(e.message || "Something went wrong");
+      console.error("createOrder error:", e);
+      alert(e?.message || "Something went wrong creating the order.");
     } finally {
       setLoading(false);
     }
@@ -260,9 +276,7 @@ curl -fsSL ${url} | bash`;
             const sdl = sdlForSize(item.sizeGi);
             return (
               <div key={item.sku} className="bg-white rounded-2xl p-6 shadow">
-                <div className="text-xs text-gray-500 mb-1">
-                  lock: {ATTR_KEY}={ATTR_VAL}
-                </div>
+                <div className="text-xs text-gray-500 mb-1">lock: {ATTR_KEY}={ATTR_VAL}</div>
                 <h3 className="text-lg font-semibold">{item.title}</h3>
                 <p className="text-sm text-gray-700 mt-1">
                   Price: ₹{inr} <span className="text-gray-400">(base ₹{item.baseInr60}/60m)</span>
@@ -277,7 +291,7 @@ curl -fsSL ${url} | bash`;
                     Pay ₹{inr} • Razorpay (INR)
                   </button>
 
-                  {/* Removed "Deploy on Akash (SDL)" button */}
+                  {/* "Deploy on Akash (SDL)" removed */}
 
                   <button
                     onClick={() => navigator.clipboard.writeText(sdl).catch(() => {})}
@@ -337,9 +351,7 @@ curl -fsSL ${url} | bash`;
                 <button
                   className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-xl"
                   onClick={() =>
-                    navigator.clipboard
-                      .writeText(osTab === "windows" ? cmdWin : cmdPosix)
-                      .catch(() => {})
+                    navigator.clipboard.writeText(osTab === "windows" ? cmdWin : cmdPosix).catch(() => {})
                   }
                 >
                   Copy command
