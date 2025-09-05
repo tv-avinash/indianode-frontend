@@ -17,7 +17,7 @@ export default function ComputeSDLPage() {
     setBusy(true);
     setError("");
     try {
-      // 1) Create order (optional; API supports amount-only mode). We use sku 'generic' to bill by minutes.
+      // 1) Create order
       const orderRes = await fetch("/api/compute/order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -26,12 +26,17 @@ export default function ComputeSDLPage() {
       const order = await orderRes.json();
       if (!order?.ok) throw new Error("Order failed");
 
-      // 2) Mint a token (the API doesn't enforce gateway verification by default)
+      // 2) Mint a token
       const payId = order?.id || "free-dev";
       const mintRes = await fetch("/api/compute/mint", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paymentId: payId, sku: "generic", minutes: Number(minutes) || 60, email }),
+        body: JSON.stringify({
+          paymentId: payId,
+          sku: "generic",
+          minutes: Number(minutes) || 60,
+          email,
+        }),
       });
       const mint = await mintRes.json();
       if (!mint?.ok || !mint?.token) throw new Error("Mint failed");
@@ -41,7 +46,12 @@ export default function ComputeSDLPage() {
       const redeemRes = await fetch("/api/compute/redeem", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: mint.token, sdl, sdlName: "custom-sdl", sdlNotes: "submitted via /compute-sdl" }),
+        body: JSON.stringify({
+          token: mint.token,
+          sdl,
+          sdlName: "custom-sdl",
+          sdlNotes: "submitted via /compute-sdl",
+        }),
       });
       const redeem = await redeemRes.json();
       if (!redeem?.ok || !redeem?.queued) throw new Error("Redeem failed");
@@ -58,13 +68,19 @@ export default function ComputeSDLPage() {
     <>
       <Head>
         <title>Deploy Custom SDL — Indianode</title>
-        <meta name="description" content="Paste your own Akash SDL and deploy it using Indianode's compute queue." />
+        <meta
+          name="description"
+          content="Paste your own Akash SDL and deploy it using Indianode&#39;s compute queue."
+        />
         <link rel="canonical" href="https://www.indianode.com/compute-sdl" />
       </Head>
 
       <main className="max-w-3xl mx-auto px-4 py-10">
         <h1 className="text-2xl font-semibold mb-4">Deploy Custom SDL</h1>
-        <p className="text-gray-700 mb-6">Paste your Akash <code>.yaml</code> SDL below. We'll enqueue it as a compute task. Your worker can pick it and deploy with the Akash CLI.</p>
+        <p className="text-gray-700 mb-6">
+          Paste your Akash <code>.yaml</code> SDL below. We&#39;ll enqueue it as a
+          compute task. Your worker can pick it and deploy with the Akash CLI.
+        </p>
 
         {step === "form" && (
           <form onSubmit={createTokenAndQueue} className="space-y-4">
@@ -75,7 +91,7 @@ export default function ComputeSDLPage() {
                 rows={16}
                 value={sdl}
                 onChange={(e) => setSdl(e.target.value)}
-                placeholder={"services:\n  web:\n    image: nginx:alpine\n..."}
+                placeholder={"services:\\n  web:\\n    image: nginx:alpine\\n..."}
                 required
               />
             </div>
@@ -92,7 +108,9 @@ export default function ComputeSDLPage() {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block font-medium mb-1">Notify Email (optional)</label>
+                <label className="block font-medium mb-1">
+                  Notify Email (optional)
+                </label>
                 <input
                   type="email"
                   className="w-full border rounded p-2"
@@ -119,9 +137,17 @@ export default function ComputeSDLPage() {
         {step === "queued" && (
           <div className="p-4 border rounded bg-green-50">
             <p className="font-medium">Queued!</p>
-            <p className="text-sm mt-1">Job ID: <code>{jobId}</code></p>
-            <p className="text-sm mt-2">Token: <code className="break-all">{token}</code></p>
-            <p className="text-sm mt-3">Your worker should call <code>/api/compute/pick</code> and will receive the job with <code>payload.kind = 'akash-sdl'</code> and your SDL under <code>payload.sdl</code>.</p>
+            <p className="text-sm mt-1">
+              Job ID: <code>{jobId}</code>
+            </p>
+            <p className="text-sm mt-2">
+              Token: <code className="break-all">{token}</code>
+            </p>
+            <p className="text-sm mt-3">
+              Your worker should call <code>/api/compute/pick</code> and will
+              receive the job with <code>payload.kind = &#39;akash-sdl&#39;</code> and
+              your SDL under <code>payload.sdl</code>.
+            </p>
           </div>
         )}
       </main>
