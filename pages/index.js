@@ -82,7 +82,7 @@ export default function Landing() {
             </Link>
             {/* New: direct link to wallet-less SDL flow */}
             <Link href="/compute-sdl" className="hover:text-white">
-              Run SDLs (No Wallet)
+              Run non-GPU SDLs (No Wallet)
             </Link>
           </nav>
         </header>
@@ -160,7 +160,7 @@ export default function Landing() {
                 <div className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg">
                   <div className="text-left">
                     <h2 className="text-lg sm:text-xl font-semibold">
-                      Run your SDLs — no crypto wallet needed
+                      Run your non-GPU tasks (SDLs) — no crypto wallet needed
                     </h2>
                     <p className="text-sm opacity-90 mt-1">
                       Pay with UPI, cards, or net-banking via Razorpay. We’ll mint a one-time{" "}
