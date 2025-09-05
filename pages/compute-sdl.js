@@ -1,217 +1,399 @@
-// pages/compute-sdl.js
-import Head from "next/head";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-export default function ComputeSDLPage() {
-  const [sdl, setSdl] = useState("");
+export default function ComputeSDL() {
   const [minutes, setMinutes] = useState(60);
-  const [email, setEmail] = useState("");
+  const [sdl, setSdl] = useState(
+`version: "2.0"
 
-  // parameters to bake into the command (only used to render instructions, not required by backend)
+services:
+  web:
+    image: nginx:alpine
+    expose:
+      - port: 80
+        as: 80
+        to:
+          - global: true
+
+profiles:
+  compute:
+    web:
+      resources:
+        cpu:
+          units: 0.1
+        memory:
+          size: 128Mi
+        storage:
+          size: 512Mi
+  placement:
+    dcloud:
+      attributes:
+        organization: akash
+      signedBy:
+        anyOf:
+          - "akash1vz375dkt0c30t3g5pxh3e4se0zqyz8qhjx8nyd"
+      pricing:
+        web:
+          denom: uakt
+          amount: 1000
+
+deployment:
+  web:
+    dcloud:
+      profile: web
+      count: 1
+`
+  );
+  const [sdlName, setSdlName] = useState("custom-sdl");
+  const [sdlNotes, setSdlNotes] = useState("");
+  const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [jobId, setJobId] = useState("");
-  const [token, setToken] = useState("");
-  const [cmdPosix, setCmdPosix] = useState("");
-  const [cmdWin, setCmdWin] = useState("");
-  const [step, setStep] = useState("form");
 
-  // Build the copy-ready commands shown to the client (POSIX + Windows)
-  function buildCommands(token, sdlText) {
-    // Base64 (UTF-8 safe) – works in browsers
-    const sdlB64 =
-      typeof window !== "undefined"
-        ? btoa(unescape(encodeURIComponent(sdlText)))
-        : "";
+  // After successful payment:
+  const [orderToken, setOrderToken] = useState("");
+  const [bashCmd, setBashCmd] = useState("");
+  const [psCmd, setPsCmd] = useState("");
 
-    const origin =
-      typeof window !== "undefined"
-        ? window.location.origin
-        : (process.env.PUBLIC_BASE || "https://www.indianode.com");
+  // Load Razorpay checkout script once on client
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.Razorpay) return;
+    const s = document.createElement("script");
+    s.src = "https://checkout.razorpay.com/v1/checkout.js";
+    s.async = true;
+    document.body.appendChild(s);
+  }, []);
 
-    const runUrl = `${origin}/api/compute/run-sdl.sh`;
+  const sdlB64 = useMemo(() => {
+    try {
+      // robust utf-8 safe base64 in the browser
+      const utf8 = new TextEncoder().encode(sdl);
+      let bin = "";
+      utf8.forEach((b) => (bin += String.fromCharCode(b)));
+      return btoa(bin);
+    } catch {
+      try {
+        // fallback for older browsers
+        // eslint-disable-next-line no-undef
+        return btoa(unescape(encodeURIComponent(sdl)));
+      } catch {
+        return "";
+      }
+    }
+  }, [sdl]);
 
-    const posix = `export ORDER_TOKEN='${token}'
-export SDL_B64='${sdlB64}'
-curl -fsSL ${runUrl} | bash`;
+  const BASE = useMemo(() => {
+    if (typeof window !== "undefined") {
+      return window.location.origin;
+    }
+    return "https://www.indianode.com";
+  }, []);
 
-    // Windows PowerShell: set env vars, then pipe to bash (Git-Bash or WSL bash in PATH)
-    const win = `$env:ORDER_TOKEN='${token}'
-$env:SDL_B64='${sdlB64}'
-(Invoke-WebRequest -UseBasicParsing ${runUrl}).Content | bash`;
+  const clearOutput = () => {
+    setOrderToken("");
+    setBashCmd("");
+    setPsCmd("");
+  };
 
-    return { posix, win };
+  const validate = () => {
+    if (!sdl || sdl.trim().length < 10) {
+      setStatus("Please paste a valid SDL first.");
+      return false;
+    }
+    if (!minutes || minutes < 1) {
+      setStatus("Minutes must be at least 1.");
+      return false;
+    }
+    return true;
+  };
+
+  async function createOrder() {
+    // This mirrors compute.js: server decides final amount/currency.
+    // Adjust the endpoint name if your compute.js uses a different one.
+    const res = await fetch("/api/compute/create-order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: "sdl",       // helps backend tag this flow
+        sku: "generic",
+        minutes: Number(minutes),
+        notes: sdlNotes || "",
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.ok) {
+      throw new Error(data?.error || "order_create_failed");
+    }
+    // expected shape (same as compute.js):
+    // { ok: true, order: { id, amount, currency }, key: "<rzp_key>", name, desc }
+    return data;
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setBusy(true);
-    setError("");
+  async function verifyPayment(payload) {
+    // Same contract as compute.js (adjust if your endpoint differs).
+    const res = await fetch("/api/compute/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        kind: "sdl",
+        sku: "generic",
+        minutes: Number(minutes),
+        razorpay_payment_id: payload.razorpay_payment_id,
+        razorpay_order_id: payload.razorpay_order_id,
+        razorpay_signature: payload.razorpay_signature,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.ok || !data?.token) {
+      throw new Error(data?.error || "verify_failed");
+    }
+    return data.token; // v1 token to be used as ORDER_TOKEN
+  }
+
+  function buildCommands(token) {
+    const tok = token.trim();
+    const b64 = sdlB64.trim();
+    const notes = sdlNotes?.trim() || "";
+
+    const bash = [
+      `export ORDER_TOKEN='${tok}'`,
+      `export SDL_B64='${b64}'`,
+      notes ? `export SDL_NOTES='${notes.replace(/'/g, "\\'")}'` : "",
+      `bash <(curl -fsSL ${BASE}/api/compute/run-sdl.sh)`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const ps = [
+      `$env:ORDER_TOKEN='${tok}'`,
+      `$env:SDL_B64='${b64}'`,
+      notes ? `$env:SDL_NOTES='${notes.replace(/'/g, "''")}'` : "",
+      `(Invoke-WebRequest -UseBasicParsing ${BASE}/api/compute/run-sdl.sh).Content | bash`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    setOrderToken(tok);
+    setBashCmd(bash);
+    setPsCmd(ps);
+  }
+
+  async function handlePay() {
+    clearOutput();
+    if (!validate()) return;
+
     try {
-      // 1) Create order
-      const orderRes = await fetch("/api/compute/order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sku: "generic", minutes: Number(minutes) || 60 }),
-      });
-      const order = await orderRes.json();
-      if (!order?.ok) throw new Error("Order failed");
+      setBusy(true);
+      setStatus("Creating order…");
 
-      // 2) Mint token
-      const payId = order?.id || "free-dev";
-      const mintRes = await fetch("/api/compute/mint", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          paymentId: payId,
-          sku: "generic",
-          minutes: Number(minutes) || 60,
-          email,
-        }),
-      });
-      const mint = await mintRes.json();
-      if (!mint?.ok || !mint?.token) throw new Error("Mint failed");
-      setToken(mint.token);
+      const { order, key, name, desc } = await createOrder();
 
-      // 3) (OPTIONAL immediate server redeem)
-      // We can redeem here for bookkeeping, but the "run-sdl.sh" script also calls redeem.
-      // Keeping both is harmless; remove this call if you want the script to be the only redeemer.
-      const redeemRes = await fetch("/api/compute/redeem", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token: mint.token,
-          sdl,                 // raw SDL
-          sdlName: "custom-sdl",
-          sdlNotes: "submitted via /compute-sdl",
-        }),
-      });
-      const redeem = await redeemRes.json();
-      if (!redeem?.ok || !redeem?.queued) {
-        // Not fatal for the CLI flow; the script will redeem again with SDL_B64.
-        // But we surface it in UI.
-        console.warn("redeem response:", redeem);
-      } else {
-        setJobId(redeem.id || "");
+      if (!window.Razorpay) {
+        setBusy(false);
+        setStatus("Razorpay is not loaded. Please refresh and try again.");
+        return;
       }
 
-      // 4) Build commands like the Compute flow
-      const { posix, win } = buildCommands(mint.token, sdl);
-      setCmdPosix(posix);
-      setCmdWin(win);
-      setStep("ready");
-    } catch (err) {
-      setError(String(err?.message || err));
-    } finally {
+      const options = {
+        key,
+        order_id: order.id,
+        amount: order.amount,
+        currency: order.currency,
+        name: name || "Indianode Compute",
+        description: desc || `Custom SDL • ${minutes} minute(s)`,
+        notes: {
+          kind: "sdl",
+          minutes: String(minutes),
+          sdlName: sdlName || "custom-sdl",
+        },
+        handler: async function (response) {
+          try {
+            setStatus("Verifying payment…");
+            const token = await verifyPayment(response);
+            setStatus("Payment verified. Generating command…");
+            buildCommands(token);
+            setStatus("Ready. Copy & run the command.");
+          } catch (e) {
+            console.error(e);
+            setStatus("Payment verification failed. Please contact support.");
+          } finally {
+            setBusy(false);
+          }
+        },
+        modal: {
+          ondismiss: function () {
+            setBusy(false);
+            setStatus("Payment cancelled.");
+          },
+        },
+        theme: { color: "#111827" },
+        prefill: {}, // optional
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.open();
+      setStatus("Opening Razorpay…");
+    } catch (e) {
+      console.error(e);
+      setStatus("Could not create order. Please try again.");
       setBusy(false);
     }
   }
 
   return (
-    <>
-      <Head>
-        <title>Deploy Custom SDL — Indianode</title>
-        <meta
-          name="description"
-          content="Paste your own Akash SDL and deploy it using Indianode&#39;s compute flow. After submit, copy the ready command to run from your backend."
-        />
-        <link rel="canonical" href="https://www.indianode.com/compute-sdl" />
-      </Head>
+    <div style={{ maxWidth: 1000, margin: "0 auto", padding: "24px" }}>
+      <h1 style={{ marginBottom: 8 }}>Deploy a Custom SDL</h1>
+      <p style={{ marginTop: 0, color: "#6b7280" }}>
+        Paste your YAML SDL below. You&apos;ll receive a copy-paste command after payment.
+      </p>
 
-      <main className="max-w-4xl mx-auto px-4 py-10">
-        <h1 className="text-2xl font-semibold mb-4">Deploy Custom SDL</h1>
+      <div style={{ display: "grid", gap: 16, gridTemplateColumns: "1fr", marginTop: 16 }}>
+        <label style={{ display: "block" }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Minutes</div>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={minutes}
+            onChange={(e) => setMinutes(Number(e.target.value || 0))}
+            style={{
+              width: 160,
+              padding: "8px 12px",
+              border: "1px solid #d1d5db",
+              borderRadius: 8,
+            }}
+          />
+        </label>
 
-        {step === "form" && (
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <p className="text-gray-700">
-              Paste your Akash <code>.yaml</code> SDL below. We&#39;ll queue it and
-              show you a tokenized command (same style as our Compute page) that you can copy & run from your backend.
-            </p>
+        <label style={{ display: "block" }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>SDL Name (optional)</div>
+          <input
+            type="text"
+            value={sdlName}
+            onChange={(e) => setSdlName(e.target.value)}
+            placeholder="custom-sdl"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              border: "1px solid #d1d5db",
+              borderRadius: 8,
+            }}
+          />
+        </label>
 
-            <div>
-              <label className="block font-medium mb-1">SDL (YAML)</label>
-              <textarea
-                className="w-full border rounded p-3 font-mono text-sm"
-                rows={18}
-                value={sdl}
-                onChange={(e) => setSdl(e.target.value)}
-                placeholder={"services:\\n  web:\\n    image: nginx:alpine\\n..."}
-                required
-              />
-            </div>
+        <label style={{ display: "block" }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>Notes (optional, not sent to payment)</div>
+          <input
+            type="text"
+            value={sdlNotes}
+            onChange={(e) => setSdlNotes(e.target.value)}
+            placeholder="anything useful for you to remember"
+            style={{
+              width: "100%",
+              padding: "8px 12px",
+              border: "1px solid #d1d5db",
+              borderRadius: 8,
+            }}
+          />
+        </label>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block font-medium mb-1">Minutes</label>
-                <input
-                  type="number"
-                  min="1"
-                  className="w-full border rounded p-2"
-                  value={minutes}
-                  onChange={(e) => setMinutes(e.target.value)}
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block font-medium mb-1">Notify Email (optional)</label>
-                <input
-                  type="email"
-                  className="w-full border rounded p-2"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                />
-              </div>
-            </div>
+        <label style={{ display: "block" }}>
+          <div style={{ fontWeight: 600, marginBottom: 6 }}>SDL (YAML)</div>
+          <textarea
+            value={sdl}
+            onChange={(e) => setSdl(e.target.value)}
+            spellCheck={false}
+            rows={20}
+            style={{
+              width: "100%",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+              fontSize: 13,
+              padding: 12,
+              border: "1px solid #d1d5db",
+              borderRadius: 8,
+              whiteSpace: "pre",
+            }}
+          />
+        </label>
 
-            <div className="flex items-center gap-3">
-              <button
-                type="submit"
-                className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50"
-                disabled={busy || !sdl.trim()}
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <button
+            onClick={handlePay}
+            disabled={busy}
+            style={{
+              background: "#111827",
+              color: "white",
+              border: 0,
+              padding: "10px 16px",
+              borderRadius: 8,
+              cursor: busy ? "not-allowed" : "pointer",
+            }}
+          >
+            {busy ? "Processing…" : "Pay & Get Command"}
+          </button>
+          <div style={{ color: "#6b7280" }}>{status}</div>
+        </div>
+
+        {orderToken && (
+          <div
+            style={{
+              marginTop: 16,
+              padding: 16,
+              border: "1px solid #e5e7eb",
+              borderRadius: 12,
+              background: "#fafafa",
+            }}
+          >
+            <h3 style={{ marginTop: 0 }}>Your command</h3>
+
+            <details open style={{ marginBottom: 12 }}>
+              <summary style={{ cursor: "pointer", fontWeight: 600 }}>Bash / Linux / macOS</summary>
+              <pre
+                style={{
+                  background: "white",
+                  border: "1px solid #e5e7eb",
+                  padding: 12,
+                  borderRadius: 8,
+                  overflowX: "auto",
+                }}
               >
-                {busy ? "Submitting..." : "Submit & Get Command"}
+{bashCmd}
+              </pre>
+              <button
+                onClick={() => navigator.clipboard.writeText(bashCmd)}
+                style={{ marginTop: 8, padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db" }}
+              >
+                Copy bash
               </button>
-              {error && <span className="text-red-600 text-sm">{error}</span>}
-            </div>
-          </form>
-        )}
+            </details>
 
-        {step === "ready" && (
-          <div className="space-y-4">
-            <div className="p-4 border rounded bg-green-50">
-              <p className="font-medium">Queued!</p>
-              {jobId && (
-                <p className="text-sm mt-1">
-                  Job ID: <code>{jobId}</code>
-                </p>
-              )}
-              <p className="text-sm mt-2">
-                Token: <code className="break-all">{token}</code>
-              </p>
-              <p className="text-sm mt-3">
-                Run one of the commands below. It sets <code>ORDER_TOKEN</code> and <code>SDL_B64</code>, then streams <code>/api/compute/run-sdl.sh</code> into bash — same pattern as our Compute flow.
-              </p>
-            </div>
-
-            <div>
-              <h2 className="font-semibold mb-1">Linux / macOS</h2>
-              <pre className="bg-gray-900 text-gray-100 rounded p-3 text-xs overflow-x-auto">
-{cmdPosix}
+            <details>
+              <summary style={{ cursor: "pointer", fontWeight: 600 }}>PowerShell (Windows)</summary>
+              <pre
+                style={{
+                  background: "white",
+                  border: "1px solid #e5e7eb",
+                  padding: 12,
+                  borderRadius: 8,
+                  overflowX: "auto",
+                }}
+              >
+{psCmd}
               </pre>
-            </div>
+              <button
+                onClick={() => navigator.clipboard.writeText(psCmd)}
+                style={{ marginTop: 8, padding: "6px 10px", borderRadius: 6, border: "1px solid #d1d5db" }}
+              >
+                Copy PowerShell
+              </button>
+            </details>
 
-            <div>
-              <h2 className="font-semibold mb-1">Windows (PowerShell → bash)</h2>
-              <pre className="bg-gray-900 text-gray-100 rounded p-3 text-xs overflow-x-auto">
-{cmdWin}
-              </pre>
-              <p className="text-xs text-gray-600 mt-1">
-                Requires <code>bash</code> in PATH (Git-Bash or WSL). If you want a pure PowerShell script, I can add it.
-              </p>
-            </div>
+            <p style={{ color: "#6b7280", marginTop: 12 }}>
+              The command posts your SDL only after payment verification. The worker then runs the container and
+              reports the public URL via progress updates.
+            </p>
           </div>
         )}
-      </main>
-    </>
+      </div>
+    </div>
   );
 }
