@@ -80,10 +80,6 @@ export default function Landing() {
             <Link href="/sdls" className="hidden sm:inline hover:text-white">
               SDLs
             </Link>
-            {/* New: direct link to wallet-less SDL flow */}
-            <Link href="/compute-sdl" className="hover:text-white">
-              Run SDLs (No Wallet)
-            </Link>
           </nav>
         </header>
 
@@ -151,40 +147,9 @@ export default function Landing() {
                   Token-based runs with minute caps
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  Razorpay (UPI/cards) — no wallet
+                  INR Razorpay + global PayPal
                 </div>
               </div>
-
-              {/* CTA banner: wallet-less SDL flow */}
-              <section className="mt-8">
-                <div className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg">
-                  <div className="text-left">
-                    <h2 className="text-lg sm:text-xl font-semibold">
-                      Run your SDLs — no crypto wallet needed
-                    </h2>
-                    <p className="text-sm opacity-90 mt-1">
-                      Pay with UPI, cards, or net-banking via Razorpay. We’ll mint a one-time{" "}
-                      <b>ORDER_TOKEN</b> so you can deploy straight from your terminal.
-                    </p>
-                  </div>
-                  <Link
-                    href="/compute-sdl"
-                    className="bg-white text-gray-900 px-4 py-2 rounded-lg font-medium hover:bg-gray-100"
-                    onClick={() => {
-                      try {
-                        if (window.gtag) {
-                          window.gtag("event", "select_content", {
-                            item_id: "cta_compute_sdl",
-                            item_category: "landing",
-                          });
-                        }
-                      } catch {}
-                    }}
-                  >
-                    Run your SDLs
-                  </Link>
-                </div>
-              </section>
             </div>
           </section>
         </main>
