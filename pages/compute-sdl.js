@@ -1,40 +1,49 @@
 // pages/compute-sdl.js
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import Script from "next/script";
 
-const BASE =
-  process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") ||
-  "https://www.indianode.com";
-const RZP_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY || ""; // same as compute.js
+const RZP_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY || "";
+const BASE_URL =
+  process.env.NEXT_PUBLIC_BASE_URL ||
+  (typeof window !== "undefined" ? window.location.origin : "https://www.indianode.com");
 
-function loadRazorpay() {
-  return new Promise((resolve) => {
-    if (typeof window !== "undefined" && window.Razorpay) return resolve(true);
-    const s = document.createElement("script");
-    s.src = "https://checkout.razorpay.com/v1/checkout.js";
-    s.async = true;
-    s.onload = () => resolve(true);
-    s.onerror = () => resolve(false);
-    document.body.appendChild(s);
-  });
-}
-
-// utf8 → b64 (browser-safe)
-function toB64Utf8(str) {
+// --- helpers ---------------------------------------------------------------
+function toBase64Utf8(s) {
+  // handle non-ASCII safely in the browser
   try {
-    return btoa(unescape(encodeURIComponent(str)));
+    return btoa(unescape(encodeURIComponent(s)));
   } catch {
-    return "";
+    return btoa(s);
   }
 }
+function trimMultiline(s = "") {
+  return (s || "").replace(/^\s+|\s+$/g, "");
+}
+function isTryPromo(p) {
+  const v = String(p || "").trim().toUpperCase();
+  return v === "TRY" || v === "TRY10";
+}
+function minutesClamp(n) {
+  const m = Number(n || 1) || 1;
+  return Math.max(1, Math.min(60 * 24, m)); // 1..1440
+}
 
-export default function ComputeSDLPage() {
-  // keep these parallel to compute.js so the server sees the same keys
-  const [minutes, setMinutes] = useState(1);
+// Same shape as compute.js: we ask the server to compute final amount.
+// We still compute a preview label client-side for the button.
+function previewAmountINR(minutes, promo) {
+  if (isTryPromo(promo)) return 1; // ₹1 test promo (same UX as compute)
+  // default ₹1/min preview (server will authoritatively price)
+  return minutesClamp(minutes) * 1;
+}
+
+// --- page ------------------------------------------------------------------
+export default function ComputeSDL() {
   const [email, setEmail] = useState("");
+  const [minutes, setMinutes] = useState(1);
   const [promo, setPromo] = useState("");
-  const [sdlName, setSdlName] = useState("custom-sdl");
-  const [sdlNotes, setSdlNotes] = useState("");
-  const [sdlText, setSdlText] = useState(
+  const [name, setName] = useState("custom-sdl");
+  const [notes, setNotes] = useState("");
+  const [sdl, setSdl] = useState(
     `version: "2.0"
 
 services:
@@ -51,236 +60,325 @@ deployment:
     dcloud:
       profile: web
       count: 1
-`
+`.replace(/\r\n/g, "\n")
   );
 
-  const sdlB64 = useMemo(() => toB64Utf8(sdlText), [sdlText]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [orderToken, setOrderToken] = useState(""); // minted after verify
+  const [visibleModal, setVisibleModal] = useState(false);
 
-  const [busy, setBusy] = useState(false);
-  const [banner, setBanner] = useState(""); // same UX as compute.js
-  const [orderId, setOrderId] = useState("");
-  const [showModal, setShowModal] = useState(false);
-  const [orderToken, setOrderToken] = useState("");
+  const sdlB64 = useMemo(() => toBase64Utf8(trimMultiline(sdl)), [sdl]);
+  const btnLabel = useMemo(() => {
+    const rs = previewAmountINR(minutes, promo);
+    return `Pay ₹${rs} · Razorpay`;
+  }, [minutes, promo]);
 
-  // match compute.js: create order → open Razorpay → verify → get ORDER_TOKEN
-  async function onPayClick() {
-    setBanner("");
-    if (!sdlText.trim()) {
-      setBanner("Please paste a valid SDL YAML.");
-      return;
+  // ----- backend calls (same endpoints as compute.js) ----------------------
+  async function createOrder() {
+    // mirror compute.js body shape as closely as possible
+    const body = {
+      sku: "generic", // worker interprets "generic" the same way your compute.js does
+      minutes: minutesClamp(minutes),
+      email: String(email || ""),
+      promo: String(promo || ""),
+      kind: "sdl", // backend may ignore, but harmless hint
+      meta: {
+        sdlName: String(name || ""),
+        sdlNotes: String(notes || ""),
+      },
+    };
+    const r = await fetch("/api/compute/order", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok || !json || json.ok === false) {
+      throw new Error(json?.error || "Could not create order");
     }
-    if (!RZP_KEY) {
-      setBanner("Razorpay key missing. Set NEXT_PUBLIC_RAZORPAY_KEY.");
-      return;
-    }
+    // expected (same as compute.js): { ok:true, order:{ id, amount, currency }, pay_gateway:'razorpay', ... }
+    return json;
+  }
 
-    setBusy(true);
+  async function verifyPayment({ razorpay_order_id, razorpay_payment_id, razorpay_signature }) {
+    // Same verify endpoint compute.js uses; backend mints ORDER_TOKEN on success.
+    const r = await fetch("/api/compute/verify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_signature,
+        // include what we need in the token claims (server side)
+        minutes: minutesClamp(minutes),
+        sku: "generic",
+        email: String(email || ""),
+        kind: "sdl",
+        meta: { sdlName: String(name || ""), sdlNotes: String(notes || "") },
+      }),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok || !json || json.ok === false || !json.token) {
+      throw new Error(json?.error || "Payment verify failed");
+    }
+    return json.token; // ORDER_TOKEN
+  }
+
+  // ----- main click --------------------------------------------------------
+  async function onPay() {
+    setError("");
+    setSubmitting(true);
     try {
-      // 1) create order (EXACT same body shape compute.js uses)
-      const co = await fetch("/api/compute/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sku: "generic",
-          minutes: Number(minutes || 1),
-          email: email || "",
-          promo: promo || "",
-        }),
-      }).then((r) => r.json());
-
-      if (!co?.ok || !co?.order?.id) {
-        throw new Error(co?.error || "Could not create order");
+      // basic validation
+      if (!trimMultiline(sdl)) {
+        throw new Error("SDL is empty.");
       }
-      setOrderId(co.order.id);
 
-      // 2) ensure Razorpay is loaded
-      const ok = await loadRazorpay();
-      if (!ok) throw new Error("Could not load Razorpay");
+      // 1) create the order (server provides amount, currency, order id)
+      const orderResp = await createOrder();
 
-      // 3) open Razorpay (mirrors compute.js)
-      const opts = {
+      // If your backend (like compute.js) short-circuits TRY/TRY10 and returns
+      // a free development token immediately (no Razorpay), handle it:
+      if (orderResp.free === true && orderResp.token) {
+        setOrderToken(orderResp.token);
+        setVisibleModal(true);
+        return;
+      }
+
+      const order = orderResp.order || orderResp; // be liberal: {order:{...}} or top-level
+      if (!RZP_KEY) {
+        throw new Error("Razorpay key missing. Set NEXT_PUBLIC_RAZORPAY_KEY.");
+      }
+      if (!(window && window.Razorpay)) {
+        throw new Error("Razorpay script not loaded yet.");
+      }
+
+      // 2) open Razorpay Checkout (same as compute.js)
+      const rzp = new window.Razorpay({
         key: RZP_KEY,
-        amount: co.order.amount,
-        currency: co.order.currency || "INR",
+        order_id: order.id,
+        amount: order.amount, // paise
+        currency: order.currency || "INR",
         name: "Indianode Cloud",
-        description: `Custom SDL · ${minutes} min`,
-        order_id: co.order.id,
-        prefill: { email },
-        notes: { sku: "generic", minutes: String(minutes || 1) },
-        handler: async (payload) => {
+        description: name || "Custom SDL",
+        prefill: {
+          email: email || undefined,
+        },
+        notes: {
+          minutes: String(minutesClamp(minutes)),
+          sku: "generic",
+          kind: "sdl",
+          sdlName: name || "",
+        },
+        handler: async (response) => {
           try {
-            // 4) verify (EXACT same body shape compute.js uses)
-            const vr = await fetch("/api/compute/verify", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                sku: "generic",
-                minutes: Number(minutes || 1),
-                razorpay_payment_id: payload.razorpay_payment_id,
-                razorpay_order_id: payload.razorpay_order_id,
-                razorpay_signature: payload.razorpay_signature,
-              }),
-            }).then((r) => r.json());
-
-            if (!vr?.ok || !vr?.token) {
-              throw new Error(vr?.error || "Payment verification failed");
-            }
-
-            setOrderToken(vr.token);
-            setShowModal(true);
+            const token = await verifyPayment({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            });
+            setOrderToken(token);
+            setVisibleModal(true);
           } catch (e) {
-            setBanner(e.message || "Payment verification failed");
+            setError(e?.message || "Verify failed");
           }
         },
         modal: {
-          ondismiss: () => setBusy(false),
+          ondismiss: () => {
+            setSubmitting(false);
+          },
         },
-        theme: { color: "#6D28D9" },
-      };
-
-      const rzp = new window.Razorpay(opts);
-      rzp.on("payment.failed", (e) => {
-        setBanner(e?.error?.description || "Payment failed");
-        setBusy(false);
       });
       rzp.open();
     } catch (e) {
-      setBanner(e.message || "Could not create order. Please try again.");
-      setBusy(false);
+      setError(e?.message || "Could not create order. Please try again.");
+    } finally {
+      // don’t reset submitting here – it’s reset by Razorpay ondismiss or after handler work
+      // but ensure we drop the spinner if we failed before checkout
+      setTimeout(() => setSubmitting(false), 100);
     }
   }
 
-  // modal command builders (identical style to compute.js)
-  const cmdBash = useMemo(() => {
+  // ----- command modal rendering ------------------------------------------
+  const linuxCommand = useMemo(() => {
     if (!orderToken) return "";
-    const lines = [
-      `export MINUTES='${Number(minutes || 1)}'`,
+    return [
       `export ORDER_TOKEN='${orderToken}'`,
-      sdlB64 ? `export SDL_B64='${sdlB64}'` : `export SDL='${sdlText.replace(/'/g, "'\\''")}'`,
-      sdlName ? `export SDL_NAME='${sdlName}'` : "",
-      sdlNotes ? `export SDL_NOTES='${sdlNotes}'` : "",
-      `bash <(curl -fsSL ${BASE}/api/compute/run-sdl.sh)`,
-    ].filter(Boolean);
-    return lines.join("\n");
-  }, [orderToken, sdlB64, sdlText, minutes, sdlName, sdlNotes]);
+      `export SDL_B64='${sdlB64}'`,
+      `bash <(curl -fsSL ${BASE_URL}/api/compute/run-sdl.sh)`,
+    ].join("\n");
+  }, [orderToken, sdlB64]);
 
-  const cmdPS = useMemo(() => {
+  const winCommand = useMemo(() => {
     if (!orderToken) return "";
-    const lines = [
-      `$env:MINUTES='${Number(minutes || 1)}'`,
-      `$env:ORDER_TOKEN='${orderToken}'`,
-      sdlB64
-        ? `$env:SDL_B64='${sdlB64}'`
-        : `$env:SDL=@'\n${sdlText.replace(/'/g, "''")}\n'@`,
-      sdlName ? `$env:SDL_NAME='${sdlName}'` : "",
-      sdlNotes ? `$env:SDL_NOTES='${sdlNotes}'` : "",
-      `(Invoke-WebRequest -UseBasicParsing ${BASE}/api/compute/run-sdl.sh).Content | bash`,
-    ].filter(Boolean);
-    return lines.join("\n");
-  }, [orderToken, sdlB64, sdlText, minutes, sdlName, sdlNotes]);
+    return [
+      `$env:ORDER_TOKEN = '${orderToken}'`,
+      `$env:SDL_B64 = '${sdlB64}'`,
+      `(Invoke-WebRequest -UseBasicParsing ${BASE_URL}/api/compute/run-sdl.sh).Content | bash`,
+    ].join("\n");
+  }, [orderToken, sdlB64]);
 
-  function copy(txt) {
-    navigator.clipboard.writeText(txt).then(
-      () => setBanner("Copied!"),
-      () => setBanner("Copy failed")
-    );
+  function copy(text) {
+    navigator.clipboard?.writeText(text);
   }
 
+  // ----- UI ---------------------------------------------------------------
   return (
-    <div className="container" style={{ maxWidth: 980, margin: "32px auto", padding: "0 16px" }}>
-      <h1>Custom SDL</h1>
+    <div className="max-w-3xl mx-auto px-4 py-10">
+      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
+      <h1 className="text-2xl font-semibold mb-6">Custom SDL</h1>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, margin: "16px 0 24px" }}>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
         <div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Email (optional)</div>
+          <label className="block text-sm text-gray-600 mb-1">Email (optional)</label>
           <input
+            className="w-full border rounded px-3 py-2"
+            placeholder="you@example.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
-            style={{ width: "100%" }}
           />
         </div>
+
         <div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Minutes</div>
+          <label className="block text-sm text-gray-600 mb-1">Minutes</label>
           <input
+            className="w-full border rounded px-3 py-2"
             type="number"
             min={1}
+            max={1440}
             value={minutes}
-            onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
-            style={{ width: "100%" }}
+            onChange={(e) => setMinutes(e.target.value)}
           />
         </div>
+
         <div>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>Promo</div>
+          <label className="block text-sm text-gray-600 mb-1">Promo</label>
           <input
+            className="w-full border rounded px-3 py-2"
+            placeholder="TRY / TRY10"
             value={promo}
             onChange={(e) => setPromo(e.target.value)}
-            placeholder="TRY / TRY10"
-            style={{ width: "100%" }}
           />
         </div>
       </div>
 
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 12, opacity: 0.8 }}>Name</div>
-        <input value={sdlName} onChange={(e) => setSdlName(e.target.value)} style={{ width: "100%" }} />
-      </div>
-
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 12, opacity: 0.8 }}>Notes (optional, not sent to payment)</div>
+      <div className="mb-6">
+        <label className="block text-sm text-gray-600 mb-1">Name</label>
         <input
-          value={sdlNotes}
-          onChange={(e) => setSdlNotes(e.target.value)}
+          className="w-full border rounded px-3 py-2"
+          placeholder="custom-sdl"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+
+      <div className="mb-6">
+        <label className="block text-sm text-gray-600 mb-1">Notes (optional, not sent to payment)</label>
+        <input
+          className="w-full border rounded px-3 py-2"
           placeholder="anything useful for you to remember"
-          style={{ width: "100%" }}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
         />
       </div>
 
-      <div>
-        <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>SDL (YAML)</div>
+      <div className="mb-6">
+        <label className="block text-sm font-medium mb-2">SDL (YAML)</label>
         <textarea
-          value={sdlText}
-          onChange={(e) => setSdlText(e.target.value)}
+          className="w-full border rounded px-3 py-2 font-mono text-sm"
           rows={18}
-          style={{ width: "100%", fontFamily: "monospace" }}
+          spellCheck={false}
+          value={sdl}
+          onChange={(e) => setSdl(e.target.value)}
         />
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16 }}>
-        <button disabled={busy} onClick={onPayClick} style={btn}>
-          {busy ? "Processing…" : "Pay & Get Command"}
+      <div className="flex items-center gap-4">
+        <button
+          onClick={onPay}
+          disabled={submitting || (!RZP_KEY && !isTryPromo(promo))}
+          className={`px-4 py-2 rounded text-white ${
+            submitting || (!RZP_KEY && !isTryPromo(promo))
+              ? "bg-gray-400"
+              : "bg-indigo-600 hover:bg-indigo-700"
+          }`}
+        >
+          {submitting ? "Processing…" : `Pay & Get Command (${btnLabel})`}
         </button>
-        {banner && <div style={{ fontSize: 13, color: "#666" }}>{banner}</div>}
+        {!RZP_KEY && !isTryPromo(promo) && (
+          <div className="text-sm text-gray-600">
+            Razorpay key missing. Set <code className="px-1 bg-gray-100 rounded">NEXT_PUBLIC_RAZORPAY_KEY</code>.
+          </div>
+        )}
       </div>
 
-      {/* Verified modal (same UX as compute.js) */}
-      {showModal && (
-        <div style={modalWrap}>
-          <div style={modalCard}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h3 style={{ margin: 0 }}>Payment verified — run this command</h3>
-              <button onClick={() => setShowModal(false)} style={xbtn}>×</button>
+      {error && (
+        <div className="mt-4 p-3 rounded border border-red-200 bg-red-50 text-red-700 text-sm">
+          {error}
+        </div>
+      )}
+
+      {/* Modal */}
+      {visibleModal && orderToken && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-lg font-semibold">Payment verified — run this command</h2>
+              <button
+                className="text-gray-500 hover:text-gray-700"
+                onClick={() => setVisibleModal(false)}
+                aria-label="Close"
+              >
+                ✕
+              </button>
             </div>
-            <p style={{ margin: "8px 0 16px" }}>
-              We minted a one-time <b>ORDER_TOKEN</b>. Run the command below from your own machine (not the Akash host VM).
+            <p className="text-sm text-gray-600 mb-4">
+              We minted a one-time <strong>ORDER_TOKEN</strong>. Run the command below from your own machine
+              (not the Akash host VM).
             </p>
 
-            <div style={tabsWrap}>
-              <div style={{ fontSize: 12, marginBottom: 6 }}>macOS / Linux</div>
-              <textarea readOnly value={cmdBash} rows={8} style={codearea} />
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => copy(cmdBash)} style={btnSm}>Copy command</button>
-                <button onClick={() => copy(orderToken)} style={btnSm}>Copy token only</button>
+            <div className="flex gap-2 mb-2">
+              <span className="px-2 py-1 rounded bg-gray-100 text-xs">macOS / Linux</span>
+              <span className="px-2 py-1 rounded bg-gray-100 text-xs">Windows (PowerShell)</span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <pre className="bg-gray-900 text-gray-100 text-xs p-3 rounded overflow-auto">
+{linuxCommand}
+                </pre>
+                <button
+                  onClick={() => copy(linuxCommand)}
+                  className="mt-2 px-3 py-1.5 rounded bg-gray-800 text-white text-xs"
+                >
+                  Copy command
+                </button>
+              </div>
+              <div>
+                <pre className="bg-gray-900 text-gray-100 text-xs p-3 rounded overflow-auto">
+{winCommand}
+                </pre>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={() => copy(winCommand)}
+                    className="px-3 py-1.5 rounded bg-gray-800 text-white text-xs"
+                  >
+                    Copy command
+                  </button>
+                  <button
+                    onClick={() => copy(orderToken)}
+                    className="px-3 py-1.5 rounded bg-gray-100 text-gray-900 text-xs"
+                  >
+                    Copy token only
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div style={{ ...tabsWrap, marginTop: 18 }}>
-              <div style={{ fontSize: 12, marginBottom: 6 }}>Windows (PowerShell)</div>
-              <textarea readOnly value={cmdPS} rows={8} style={codearea} />
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => copy(cmdPS)} style={btnSm}>Copy command</button>
-                <button onClick={() => copy(orderToken)} style={btnSm}>Copy token only</button>
-              </div>
+            <div className="mt-4 text-xs text-gray-600">
+              This will export <code>ORDER_TOKEN</code> and <code>SDL_B64</code> then pipe&nbsp;
+              <code>run-sdl.sh</code> from {BASE_URL}.
             </div>
           </div>
         </div>
@@ -288,33 +386,3 @@ deployment:
     </div>
   );
 }
-
-const btn = {
-  background: "#4F46E5",
-  color: "#fff",
-  border: 0,
-  padding: "10px 14px",
-  borderRadius: 8,
-  cursor: "pointer",
-};
-const btnSm = { ...btn, padding: "8px 12px" };
-const xbtn = { ...btn, background: "#e5e7eb", color: "#111827" };
-const codearea = { width: "100%", fontFamily: "monospace", fontSize: 12 };
-const tabsWrap = { border: "1px solid #e5e7eb", borderRadius: 8, padding: 12 };
-const modalWrap = {
-  position: "fixed",
-  inset: 0,
-  background: "rgba(0,0,0,0.3)",
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  padding: 16,
-  zIndex: 1000,
-};
-const modalCard = {
-  background: "#fff",
-  width: "min(900px, 100%)",
-  padding: 16,
-  borderRadius: 10,
-  boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
-};
