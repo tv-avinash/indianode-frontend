@@ -1,48 +1,48 @@
-// pages/compute-sdl.js
-import { useMemo, useState } from "react";
+// pages/compute-sdl.jsx
+import { useEffect, useMemo, useState } from "react";
+import Head from "next/head";
 import Script from "next/script";
+import Link from "next/link";
 
-const RZP_KEY = process.env.NEXT_PUBLIC_RAZORPAY_KEY || "";
-const BASE_URL =
-  process.env.NEXT_PUBLIC_BASE_URL ||
-  (typeof window !== "undefined" ? window.location.origin : "https://www.indianode.com");
-
-// --- helpers ---------------------------------------------------------------
-function toBase64Utf8(s) {
-  // handle non-ASCII safely in the browser
+// GA helper (same as compute.jsx)
+const gaEvent = (name, params = {}) => {
   try {
-    return btoa(unescape(encodeURIComponent(s)));
-  } catch {
-    return btoa(s);
-  }
-}
-function trimMultiline(s = "") {
-  return (s || "").replace(/^\s+|\s+$/g, "");
-}
-function isTryPromo(p) {
-  const v = String(p || "").trim().toUpperCase();
-  return v === "TRY" || v === "TRY10";
-}
-function minutesClamp(n) {
-  const m = Number(n || 1) || 1;
-  return Math.max(1, Math.min(60 * 24, m)); // 1..1440
+    if (typeof window !== "undefined" && window.gtag) {
+      window.gtag("event", name, params);
+    }
+  } catch {}
+};
+
+// Reusable compact modal (same UI/logic as compute.jsx)
+function Modal({ open, onClose, children, title = "Next steps" }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-2xl mx-2 rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between px-4 py-3 border-b">
+          <h3 className="font-semibold text-base">{title}</h3>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1.5 hover:bg-gray-100"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    </div>
+  );
 }
 
-// Same shape as compute.js: we ask the server to compute final amount.
-// We still compute a preview label client-side for the button.
-function previewAmountINR(minutes, promo) {
-  if (isTryPromo(promo)) return 1; // ₹1 test promo (same UX as compute)
-  // default ₹1/min preview (server will authoritatively price)
-  return minutesClamp(minutes) * 1;
-}
-
-// --- page ------------------------------------------------------------------
 export default function ComputeSDL() {
+  // Inputs
   const [email, setEmail] = useState("");
-  const [minutes, setMinutes] = useState(1);
+  const [minutes, setMinutes] = useState(60);
   const [promo, setPromo] = useState("");
-  const [name, setName] = useState("custom-sdl");
-  const [notes, setNotes] = useState("");
+
+  // SDL text
   const [sdl, setSdl] = useState(
     `version: "2.0"
 
@@ -63,326 +63,363 @@ deployment:
 `.replace(/\r\n/g, "\n")
   );
 
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [orderToken, setOrderToken] = useState(""); // minted after verify
-  const [visibleModal, setVisibleModal] = useState(false);
+  // UI state
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState("");
 
-  const sdlB64 = useMemo(() => toBase64Utf8(trimMultiline(sdl)), [sdl]);
-  const btnLabel = useMemo(() => {
-    const rs = previewAmountINR(minutes, promo);
-    return `Pay ₹${rs} · Razorpay`;
-  }, [minutes, promo]);
+  // Run command modal (same pattern as compute.jsx)
+  function getRunUrl() {
+    try {
+      if (typeof window !== "undefined") {
+        return `${window.location.origin}/api/compute/run-sdl.sh`;
+      }
+    } catch {}
+    return "https://www.indianode.com/api/compute/run-sdl.sh";
+  }
+  const [mintOpen, setMintOpen] = useState(false);
+  const [mintToken, setMintToken] = useState("");
+  const [mintCmd, setMintCmd] = useState("");
+  const [mintCmdWin, setMintCmdWin] = useState("");
+  const [osTab, setOsTab] = useState("linux");
 
-  // ----- backend calls (same endpoints as compute.js) ----------------------
-  async function createOrder() {
-    // mirror compute.js body shape as closely as possible
-    const body = {
-      sku: "generic", // worker interprets "generic" the same way your compute.js does
-      minutes: minutesClamp(minutes),
-      email: String(email || ""),
-      promo: String(promo || ""),
-      kind: "sdl", // backend may ignore, but harmless hint
-      meta: {
-        sdlName: String(name || ""),
-        sdlNotes: String(notes || ""),
-      },
-    };
+  useEffect(() => {
+    if (typeof navigator !== "undefined") {
+      const ua = navigator.userAgent.toLowerCase();
+      setOsTab(ua.includes("windows") ? "windows" : "linux");
+    }
+  }, []);
+
+  // Helper to b64 the SDL textarea
+  const sdlB64 = useMemo(() => {
+    try {
+      return btoa(unescape(encodeURIComponent(String(sdl || ""))));
+    } catch {
+      return btoa(String(sdl || ""));
+    }
+  }, [sdl]);
+
+  function buildCommands(token) {
+    const url = getRunUrl();
+    const posix = `export ORDER_TOKEN='${token}'
+export SDL_B64='${sdlB64}'
+curl -fsSL ${url} | bash`;
+    const win = `$env:ORDER_TOKEN = '${token}'
+$env:SDL_B64 = '${sdlB64}'
+(Invoke-WebRequest -UseBasicParsing ${url}).Content | bash`;
+    return { posix, win };
+  }
+
+  // ---- API helpers (same endpoints + shapes as compute.jsx) ----
+  async function createOrder({ product, minutes, userEmail }) {
     const r = await fetch("/api/compute/order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ product, minutes, userEmail, promo }),
     });
-    const json = await r.json().catch(() => ({}));
-    if (!r.ok || !json || json.ok === false) {
-      throw new Error(json?.error || "Could not create order");
-    }
-    // expected (same as compute.js): { ok:true, order:{ id, amount, currency }, pay_gateway:'razorpay', ... }
-    return json;
+    const data = await r.json();
+    if (!r.ok) throw new Error(data?.error || "order_failed");
+    return data;
   }
 
-  async function verifyPayment({ razorpay_order_id, razorpay_payment_id, razorpay_signature }) {
-    // Same verify endpoint compute.js uses; backend mints ORDER_TOKEN on success.
-    const r = await fetch("/api/compute/verify", {
+  async function mintAfterPayment({ paymentId, product, minutes, email, promo }) {
+    const r = await fetch("/api/compute/mint", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        razorpay_order_id,
-        razorpay_payment_id,
-        razorpay_signature,
-        // include what we need in the token claims (server side)
-        minutes: minutesClamp(minutes),
-        sku: "generic",
-        email: String(email || ""),
-        kind: "sdl",
-        meta: { sdlName: String(name || ""), sdlNotes: String(notes || "") },
+        paymentId,
+        product,
+        minutes: Number(minutes),
+        email: (email || "").trim(),
+        promo: (promo || "").trim(),
       }),
     });
-    const json = await r.json().catch(() => ({}));
-    if (!r.ok || !json || json.ok === false || !json.token) {
-      throw new Error(json?.error || "Payment verify failed");
-    }
-    return json.token; // ORDER_TOKEN
+    const j = await r.json();
+    if (!r.ok) throw new Error(j?.error || "token_mint_failed");
+    return j;
   }
 
-  // ----- main click --------------------------------------------------------
-  async function onPay() {
-    setError("");
-    setSubmitting(true);
+  // ---- Payments (same methodology as compute.jsx) ----
+  async function payWithRazorpaySDL() {
     try {
-      // basic validation
-      if (!trimMultiline(sdl)) {
-        throw new Error("SDL is empty.");
+      setMsg("");
+      setLoading(true);
+
+      if (!String(sdl).trim()) {
+        throw new Error("SDL cannot be empty.");
       }
 
-      // 1) create the order (server provides amount, currency, order id)
-      const orderResp = await createOrder();
-
-      // If your backend (like compute.js) short-circuits TRY/TRY10 and returns
-      // a free development token immediately (no Razorpay), handle it:
-      if (orderResp.free === true && orderResp.token) {
-        setOrderToken(orderResp.token);
-        setVisibleModal(true);
-        return;
+      const userEmail = (email || "").trim();
+      if (!userEmail) {
+        setMsg("Tip: add your email so we can send your run command + receipt.");
       }
 
-      const order = orderResp.order || orderResp; // be liberal: {order:{...}} or top-level
-      if (!RZP_KEY) {
-        throw new Error("Razorpay key missing. Set NEXT_PUBLIC_RAZORPAY_KEY.");
-      }
-      if (!(window && window.Razorpay)) {
-        throw new Error("Razorpay script not loaded yet.");
-      }
+      // Use product "generic" so server pricing stays consistent with compute.jsx
+      const order = await createOrder({
+        product: "generic",
+        minutes,
+        userEmail,
+      });
 
-      // 2) open Razorpay Checkout (same as compute.js)
-      const rzp = new window.Razorpay({
-        key: RZP_KEY,
-        order_id: order.id,
-        amount: order.amount, // paise
+      const valueInr = Number(((order.amount || 0) / 100).toFixed(2));
+      const promoCode = (promo || "").trim().toUpperCase();
+
+      gaEvent("begin_checkout", {
+        value: valueInr,
         currency: order.currency || "INR",
+        coupon: promoCode || undefined,
+        items: [
+          {
+            item_id: "sdl",
+            item_name: "Custom SDL",
+            item_category: "compute",
+            quantity: 1,
+            price: valueInr,
+          },
+        ],
+        minutes: Number(minutes),
+        payment_method: "razorpay",
+      });
+
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_xxxxxx",
+        amount: order.amount,
+        currency: order.currency,
+        order_id: order.id,
         name: "Indianode Cloud",
-        description: name || "Custom SDL",
-        prefill: {
-          email: email || undefined,
-        },
-        notes: {
-          minutes: String(minutesClamp(minutes)),
-          sku: "generic",
-          kind: "sdl",
-          sdlName: name || "",
-        },
+        description: `Custom SDL (${minutes} min)`,
+        prefill: userEmail ? { email: userEmail } : undefined,
+        notes: { minutes: String(minutes), product: "generic", email: userEmail, promo: promoCode, kind: "sdl" },
+        theme: { color: "#111827" },
         handler: async (response) => {
           try {
-            const token = await verifyPayment({
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
+            // Mint ORDER_TOKEN after successful payment (same as compute.jsx flow)
+            const result = await mintAfterPayment({
+              paymentId: response.razorpay_payment_id,
+              product: "generic",
+              minutes,
+              email: userEmail,
+              promo,
             });
-            setOrderToken(token);
-            setVisibleModal(true);
+            const token = result?.token || "";
+            if (!token) throw new Error("no_token");
+
+            const { posix, win } = buildCommands(token);
+            setMintToken(token);
+            setMintCmd(posix);
+            setMintCmdWin(win);
+            setMintOpen(true);
+
+            gaEvent("purchase", {
+              transaction_id: response.razorpay_payment_id,
+              value: valueInr,
+              currency: order.currency || "INR",
+              coupon: promoCode || undefined,
+              items: [
+                {
+                  item_id: "sdl",
+                  item_name: "Custom SDL",
+                  item_category: "compute",
+                  quantity: 1,
+                  price: valueInr,
+                },
+              ],
+              minutes: Number(minutes),
+              payment_method: "razorpay",
+            });
           } catch (e) {
-            setError(e?.message || "Verify failed");
+            alert("Could not mint ORDER_TOKEN (" + (e.message || "token_mint_failed") + ")");
           }
         },
-        modal: {
-          ondismiss: () => {
-            setSubmitting(false);
-          },
-        },
-      });
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on("payment.failed", (resp) => alert(resp?.error?.description || "Payment failed"));
       rzp.open();
     } catch (e) {
-      setError(e?.message || "Could not create order. Please try again.");
+      alert(e.message || "Something went wrong");
     } finally {
-      // don’t reset submitting here – it’s reset by Razorpay ondismiss or after handler work
-      // but ensure we drop the spinner if we failed before checkout
-      setTimeout(() => setSubmitting(false), 100);
+      setLoading(false);
     }
   }
 
-  // ----- command modal rendering ------------------------------------------
-  const linuxCommand = useMemo(() => {
-    if (!orderToken) return "";
-    return [
-      `export ORDER_TOKEN='${orderToken}'`,
-      `export SDL_B64='${sdlB64}'`,
-      `bash <(curl -fsSL ${BASE_URL}/api/compute/run-sdl.sh)`,
-    ].join("\n");
-  }, [orderToken, sdlB64]);
-
-  const winCommand = useMemo(() => {
-    if (!orderToken) return "";
-    return [
-      `$env:ORDER_TOKEN = '${orderToken}'`,
-      `$env:SDL_B64 = '${sdlB64}'`,
-      `(Invoke-WebRequest -UseBasicParsing ${BASE_URL}/api/compute/run-sdl.sh).Content | bash`,
-    ].join("\n");
-  }, [orderToken, sdlB64]);
-
-  function copy(text) {
-    navigator.clipboard?.writeText(text);
-  }
-
-  // ----- UI ---------------------------------------------------------------
   return (
-    <div className="max-w-3xl mx-auto px-4 py-10">
-      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="lazyOnload" />
-      <h1 className="text-2xl font-semibold mb-6">Custom SDL</h1>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-        <div>
-          <label className="block text-sm text-gray-600 mb-1">Email (optional)</label>
-          <input
-            className="w-full border rounded px-3 py-2"
-            placeholder="you@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm text-gray-600 mb-1">Minutes</label>
-          <input
-            className="w-full border rounded px-3 py-2"
-            type="number"
-            min={1}
-            max={1440}
-            value={minutes}
-            onChange={(e) => setMinutes(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm text-gray-600 mb-1">Promo</label>
-          <input
-            className="w-full border rounded px-3 py-2"
-            placeholder="TRY / TRY10"
-            value={promo}
-            onChange={(e) => setPromo(e.target.value)}
-          />
-        </div>
-      </div>
-
-      <div className="mb-6">
-        <label className="block text-sm text-gray-600 mb-1">Name</label>
-        <input
-          className="w-full border rounded px-3 py-2"
-          placeholder="custom-sdl"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+    <>
+      <Head>
+        <title>Custom SDL — Indianode</title>
+        <meta
+          name="description"
+          content="Submit your own SDL, pay per minute with Razorpay, and redeem with a one-time ORDER_TOKEN."
         />
-      </div>
+        <link rel="canonical" href="https://www.indianode.com/compute-sdl" />
+      </Head>
 
-      <div className="mb-6">
-        <label className="block text-sm text-gray-600 mb-1">Notes (optional, not sent to payment)</label>
-        <input
-          className="w-full border rounded px-3 py-2"
-          placeholder="anything useful for you to remember"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-        />
-      </div>
+      <div className="min-h-screen bg-gray-50 text-gray-900">
+        <Script src="https://checkout.razorpay.com/v1/checkout.js" />
 
-      <div className="mb-6">
-        <label className="block text-sm font-medium mb-2">SDL (YAML)</label>
-        <textarea
-          className="w-full border rounded px-3 py-2 font-mono text-sm"
-          rows={18}
-          spellCheck={false}
-          value={sdl}
-          onChange={(e) => setSdl(e.target.value)}
-        />
-      </div>
-
-      <div className="flex items-center gap-4">
-        <button
-          onClick={onPay}
-          disabled={submitting || (!RZP_KEY && !isTryPromo(promo))}
-          className={`px-4 py-2 rounded text-white ${
-            submitting || (!RZP_KEY && !isTryPromo(promo))
-              ? "bg-gray-400"
-              : "bg-indigo-600 hover:bg-indigo-700"
-          }`}
-        >
-          {submitting ? "Processing…" : `Pay & Get Command (${btnLabel})`}
-        </button>
-        {!RZP_KEY && !isTryPromo(promo) && (
-          <div className="text-sm text-gray-600">
-            Razorpay key missing. Set <code className="px-1 bg-gray-100 rounded">NEXT_PUBLIC_RAZORPAY_KEY</code>.
+        {/* Compact header (same style as compute.jsx) */}
+        <header className="px-4 py-3 bg-gray-900 text-white">
+          <div className="max-w-6xl mx-auto flex items-center justify-between">
+            <div className="text-lg font-semibold tracking-tight">Indianode Cloud</div>
+            <nav className="text-xs space-x-3">
+              <Link href="/" className="hover:underline">Home</Link>
+              <Link href="/compute" className="hover:underline">Compute</Link>
+              <Link href="/storage" className="hover:underline">Storage</Link>
+            </nav>
           </div>
-        )}
-      </div>
+        </header>
 
-      {error && (
-        <div className="mt-4 p-3 rounded border border-red-200 bg-red-50 text-red-700 text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Modal */}
-      {visibleModal && orderToken && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full p-6">
-            <div className="flex justify-between items-center mb-3">
-              <h2 className="text-lg font-semibold">Payment verified — run this command</h2>
-              <button
-                className="text-gray-500 hover:text-gray-700"
-                onClick={() => setVisibleModal(false)}
-                aria-label="Close"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="text-sm text-gray-600 mb-4">
-              We minted a one-time <strong>ORDER_TOKEN</strong>. Run the command below from your own machine
-              (not the Akash host VM).
-            </p>
-
-            <div className="flex gap-2 mb-2">
-              <span className="px-2 py-1 rounded bg-gray-100 text-xs">macOS / Linux</span>
-              <span className="px-2 py-1 rounded bg-gray-100 text-xs">Windows (PowerShell)</span>
+        {/* Main */}
+        <main className="max-w-6xl mx-auto px-4 pt-4 pb-2">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-bold leading-tight">Custom SDL runner</h1>
+              <p className="text-sm text-gray-600">
+                Pay per minute and redeem via{" "}
+                <code className="font-mono">/api/compute/run-sdl.sh</code>.
+              </p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <pre className="bg-gray-900 text-gray-100 text-xs p-3 rounded overflow-auto">
-{linuxCommand}
-                </pre>
+            {/* Buyer inputs toolbar (same compact style) */}
+            <div className="bg-white rounded-xl shadow border px-3 py-2">
+              <div className="grid grid-cols-3 gap-2 items-end">
+                <label className="flex flex-col">
+                  <span className="text-[11px] font-semibold">Email</span>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@example.com"
+                    className="border rounded-md px-2 py-1 text-sm"
+                    disabled={loading}
+                  />
+                </label>
+                <label className="flex flex-col">
+                  <span className="text-[11px] font-semibold">Minutes</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="480"
+                    value={minutes}
+                    onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
+                    className="border rounded-md px-2 py-1 text-sm"
+                    disabled={loading}
+                  />
+                </label>
+                <label className="flex flex-col">
+                  <span className="text-[11px] font-semibold">Promo</span>
+                  <input
+                    value={promo}
+                    onChange={(e) => setPromo(e.target.value)}
+                    placeholder="TRY / TRY10"
+                    className="border rounded-md px-2 py-1 text-sm"
+                    disabled={loading}
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          {msg && (
+            <div className="mt-2 text-center text-xs text-emerald-800 bg-emerald-100 border border-emerald-200 rounded-lg px-3 py-1.5">
+              {msg}
+            </div>
+          )}
+
+          {/* SDL editor */}
+          <div className="mt-3 grid grid-cols-1 gap-3">
+            <div className="bg-white border rounded-2xl shadow p-4">
+              <label className="block text-sm font-medium mb-2">SDL (YAML)</label>
+              <textarea
+                className="w-full border rounded-xl px-3 py-2 font-mono text-sm"
+                rows={20}
+                spellCheck={false}
+                value={sdl}
+                onChange={(e) => setSdl(e.target.value)}
+                disabled={loading}
+              />
+              <div className="mt-3">
                 <button
-                  onClick={() => copy(linuxCommand)}
-                  className="mt-2 px-3 py-1.5 rounded bg-gray-800 text-white text-xs"
+                  className={`text-white px-3 py-1.5 text-sm rounded-lg ${
+                    loading ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
+                  }`}
+                  onClick={payWithRazorpaySDL}
+                  disabled={loading}
                 >
-                  Copy command
+                  Pay & Get Command • Razorpay
                 </button>
               </div>
-              <div>
-                <pre className="bg-gray-900 text-gray-100 text-xs p-3 rounded overflow-auto">
-{winCommand}
-                </pre>
-                <div className="flex gap-2 mt-2">
-                  <button
-                    onClick={() => copy(winCommand)}
-                    className="px-3 py-1.5 rounded bg-gray-800 text-white text-xs"
-                  >
-                    Copy command
-                  </button>
-                  <button
-                    onClick={() => copy(orderToken)}
-                    className="px-3 py-1.5 rounded bg-gray-100 text-gray-900 text-xs"
-                  >
-                    Copy token only
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 text-xs text-gray-600">
-              This will export <code>ORDER_TOKEN</code> and <code>SDL_B64</code> then pipe&nbsp;
-              <code>run-sdl.sh</code> from {BASE_URL}.
             </div>
           </div>
+        </main>
+
+        {/* Compact footer (same) */}
+        <footer className="px-4 py-3 text-center text-xs text-gray-600">
+          <nav className="mb-1 space-x-3">
+            <Link href="/" className="text-blue-600 hover:underline">Home</Link>
+            <Link href="/compute" className="text-blue-600 hover:underline">Compute</Link>
+            <Link href="/storage" className="text-blue-600 hover:underline">Storage</Link>
+          </nav>
+          © {new Date().getFullYear()} Indianode
+        </footer>
+      </div>
+
+      {/* Mint modal (same compact UI as compute.jsx) */}
+      <Modal open={mintOpen} onClose={() => setMintOpen(false)} title="Payment verified — run this command">
+        <div className="space-y-2">
+          <p className="text-sm text-gray-700">
+            We minted a one-time <b>ORDER_TOKEN</b>. Run the command below from your own machine
+            (not the Akash host VM).
+          </p>
+
+          <div className="flex gap-2 text-[11px]">
+            <button
+              onClick={() => setOsTab("linux")}
+              className={`px-2.5 py-1 rounded border ${
+                osTab === "linux" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800 border-gray-200"
+              }`}
+              title="macOS / Linux (bash or zsh)"
+            >
+              macOS / Linux
+            </button>
+            <button
+              onClick={() => setOsTab("windows")}
+              className={`px-2.5 py-1 rounded border ${
+                osTab === "windows" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800 border-gray-200"
+              }`}
+              title="Windows PowerShell"
+            >
+              Windows (PowerShell)
+            </button>
+          </div>
+
+          <div className="bg-gray-900 text-gray-100 rounded-xl p-3 font-mono text-xs overflow-x-auto">
+            {osTab === "windows" ? mintCmdWin || "…" : mintCmd || "…"}
+          </div>
+
+          <div className="flex gap-2">
+            <button
+              className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-sm"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(osTab === "windows" ? mintCmdWin : mintCmd);
+                } catch {}
+              }}
+            >
+              Copy command
+            </button>
+            <button
+              className="bg-gray-200 hover:bg-gray-300 text-gray-900 px-3 py-1.5 rounded-lg text-sm"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(mintToken);
+                } catch {}
+              }}
+            >
+              Copy token only
+            </button>
+          </div>
         </div>
-      )}
-    </div>
+      </Modal>
+    </>
   );
 }
