@@ -7,47 +7,46 @@ export default function ComputeSDLPage() {
   const [minutes, setMinutes] = useState(60);
   const [email, setEmail] = useState("");
 
-  // Optional params so the generated command is ready-to-run
-  const [chainId, setChainId] = useState("akashnet-2");
-  const [rpc, setRpc] = useState("https://rpc.akashnet.net:443");
-  const [keyName, setKeyName] = useState("mykey");
-  const [provider, setProvider] = useState("akash1................"); // put a default if you want
-
+  // parameters to bake into the command (only used to render instructions, not required by backend)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [jobId, setJobId] = useState("");
   const [token, setToken] = useState("");
-  const [clientCmd, setClientCmd] = useState(""); // <-- this is what the client will copy
+  const [cmdPosix, setCmdPosix] = useState("");
+  const [cmdWin, setCmdWin] = useState("");
   const [step, setStep] = useState("form");
 
-  function buildClientCommand({ sdlText, chainId, rpc, keyName, provider }) {
-    // Safe heredoc with the raw SDL. No quoting issues.
-    return `export AKASH_CHAIN_ID=\${AKASH_CHAIN_ID:-"${chainId}"} 
-export AKASH_NODE=\${AKASH_NODE:-"${rpc}"}
-export AKASH_KEY_NAME=\${AKASH_KEY_NAME:-"${keyName}"}
-export AKASH_PROVIDER=\${AKASH_PROVIDER:-"${provider}"}
+  // Build the copy-ready commands shown to the client (POSIX + Windows)
+  function buildCommands(token, sdlText) {
+    // Base64 (UTF-8 safe) – works in browsers
+    const sdlB64 =
+      typeof window !== "undefined"
+        ? btoa(unescape(encodeURIComponent(sdlText)))
+        : "";
 
-cat > deploy.yaml <<'YAML'
-${sdlText}
-YAML
+    const origin =
+      typeof window !== "undefined"
+        ? window.location.origin
+        : (process.env.PUBLIC_BASE || "https://www.indianode.com");
 
-akash tx deployment create deploy.yaml --from "$AKASH_KEY_NAME" --chain-id "$AKASH_CHAIN_ID" --node "$AKASH_NODE" --gas auto --gas-adjustment 1.5 -y
+    const runUrl = `${origin}/api/compute/run-sdl.sh`;
 
-OWNER=$(akash keys show "$AKASH_KEY_NAME" -a)
-DSEQ=$(akash query deployment list --owner "$OWNER" --node "$AKASH_NODE" --chain-id "$AKASH_CHAIN_ID" --output json | jq -r '.deployments[-1].deployment.deployment_id.dseq')
-echo "DSEQ=$DSEQ"
+    const posix = `export ORDER_TOKEN='${token}'
+export SDL_B64='${sdlB64}'
+curl -fsSL ${runUrl} | bash`;
 
-akash provider send-manifest "$AKASH_PROVIDER" --dseq "$DSEQ" --gseq 1 --oseq 1 --node "$AKASH_NODE" --chain-id "$AKASH_CHAIN_ID" deploy.yaml
+    // Windows PowerShell: set env vars, then pipe to bash (Git-Bash or WSL bash in PATH)
+    const win = `$env:ORDER_TOKEN='${token}'
+$env:SDL_B64='${sdlB64}'
+(Invoke-WebRequest -UseBasicParsing ${runUrl}).Content | bash`;
 
-akash provider lease-status "$AKASH_PROVIDER" --dseq "$DSEQ" --gseq 1 --oseq 1 --node "$AKASH_NODE" --chain-id "$AKASH_CHAIN_ID"
-`;
+    return { posix, win };
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
     setBusy(true);
     setError("");
-
     try {
       // 1) Create order
       const orderRes = await fetch("/api/compute/order", {
@@ -74,30 +73,32 @@ akash provider lease-status "$AKASH_PROVIDER" --dseq "$DSEQ" --gseq 1 --oseq 1 -
       if (!mint?.ok || !mint?.token) throw new Error("Mint failed");
       setToken(mint.token);
 
-      // 3) Redeem + queue with SDL payload
+      // 3) (OPTIONAL immediate server redeem)
+      // We can redeem here for bookkeeping, but the "run-sdl.sh" script also calls redeem.
+      // Keeping both is harmless; remove this call if you want the script to be the only redeemer.
       const redeemRes = await fetch("/api/compute/redeem", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           token: mint.token,
-          sdl,
+          sdl,                 // raw SDL
           sdlName: "custom-sdl",
           sdlNotes: "submitted via /compute-sdl",
         }),
       });
       const redeem = await redeemRes.json();
-      if (!redeem?.ok || !redeem?.queued) throw new Error("Redeem failed");
-      setJobId(redeem.id);
+      if (!redeem?.ok || !redeem?.queued) {
+        // Not fatal for the CLI flow; the script will redeem again with SDL_B64.
+        // But we surface it in UI.
+        console.warn("redeem response:", redeem);
+      } else {
+        setJobId(redeem.id || "");
+      }
 
-      // 4) Build the client command immediately so user can copy & run from backend
-      const cmd = buildClientCommand({
-        sdlText: sdl,
-        chainId,
-        rpc,
-        keyName,
-        provider,
-      });
-      setClientCmd(cmd);
+      // 4) Build commands like the Compute flow
+      const { posix, win } = buildCommands(mint.token, sdl);
+      setCmdPosix(posix);
+      setCmdWin(win);
       setStep("ready");
     } catch (err) {
       setError(String(err?.message || err));
@@ -112,7 +113,7 @@ akash provider lease-status "$AKASH_PROVIDER" --dseq "$DSEQ" --gseq 1 --oseq 1 -
         <title>Deploy Custom SDL — Indianode</title>
         <meta
           name="description"
-          content="Paste your own Akash SDL and deploy it using Indianode&#39;s compute queue. Also get a ready CLI command to run from your backend."
+          content="Paste your own Akash SDL and deploy it using Indianode&#39;s compute flow. After submit, copy the ready command to run from your backend."
         />
         <link rel="canonical" href="https://www.indianode.com/compute-sdl" />
       </Head>
@@ -123,8 +124,8 @@ akash provider lease-status "$AKASH_PROVIDER" --dseq "$DSEQ" --gseq 1 --oseq 1 -
         {step === "form" && (
           <form onSubmit={handleSubmit} className="space-y-4">
             <p className="text-gray-700">
-              Paste your Akash <code>.yaml</code> SDL below. After submit, we&#39;ll
-              enqueue it and also generate a ready-to-run CLI command your client can copy & run from their backend.
+              Paste your Akash <code>.yaml</code> SDL below. We&#39;ll queue it and
+              show you a tokenized command (same style as our Compute page) that you can copy & run from your backend.
             </p>
 
             <div>
@@ -139,7 +140,7 @@ akash provider lease-status "$AKASH_PROVIDER" --dseq "$DSEQ" --gseq 1 --oseq 1 -
               />
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block font-medium mb-1">Minutes</label>
                 <input
@@ -150,7 +151,7 @@ akash provider lease-status "$AKASH_PROVIDER" --dseq "$DSEQ" --gseq 1 --oseq 1 -
                   onChange={(e) => setMinutes(e.target.value)}
                 />
               </div>
-              <div>
+              <div className="md:col-span-2">
                 <label className="block font-medium mb-1">Notify Email (optional)</label>
                 <input
                   type="email"
@@ -162,54 +163,13 @@ akash provider lease-status "$AKASH_PROVIDER" --dseq "$DSEQ" --gseq 1 --oseq 1 -
               </div>
             </div>
 
-            {/* Optional: parameters to bake into the command */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div>
-                <label className="block font-medium mb-1">Chain ID</label>
-                <input
-                  className="w-full border rounded p-2"
-                  value={chainId}
-                  onChange={(e) => setChainId(e.target.value)}
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block font-medium mb-1">RPC</label>
-                <input
-                  className="w-full border rounded p-2"
-                  value={rpc}
-                  onChange={(e) => setRpc(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block font-medium mb-1">Key Name</label>
-                <input
-                  className="w-full border rounded p-2"
-                  value={keyName}
-                  onChange={(e) => setKeyName(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block font-medium mb-1">Provider Address</label>
-              <input
-                className="w-full border rounded p-2"
-                value={provider}
-                onChange={(e) => setProvider(e.target.value)}
-                placeholder="akash1..."
-              />
-              <p className="text-xs text-gray-600 mt-1">
-                Use a provider that will bid for your SDL&#39;s attributes.
-              </p>
-            </div>
-
             <div className="flex items-center gap-3">
               <button
                 type="submit"
                 className="px-4 py-2 rounded bg-blue-600 text-white disabled:opacity-50"
                 disabled={busy || !sdl.trim()}
               >
-                {busy ? "Submitting..." : "Submit & Get CLI"}
+                {busy ? "Submitting..." : "Submit & Get Command"}
               </button>
               {error && <span className="text-red-600 text-sm">{error}</span>}
             </div>
@@ -220,27 +180,33 @@ akash provider lease-status "$AKASH_PROVIDER" --dseq "$DSEQ" --gseq 1 --oseq 1 -
           <div className="space-y-4">
             <div className="p-4 border rounded bg-green-50">
               <p className="font-medium">Queued!</p>
-              <p className="text-sm mt-1">
-                Job ID: <code>{jobId}</code>
-              </p>
+              {jobId && (
+                <p className="text-sm mt-1">
+                  Job ID: <code>{jobId}</code>
+                </p>
+              )}
               <p className="text-sm mt-2">
                 Token: <code className="break-all">{token}</code>
               </p>
               <p className="text-sm mt-3">
-                Your worker will still pick this job (payload.kind = &#39;akash-sdl&#39;). Meanwhile, your client can deploy immediately using the CLI below.
+                Run one of the commands below. It sets <code>ORDER_TOKEN</code> and <code>SDL_B64</code>, then streams <code>/api/compute/run-sdl.sh</code> into bash — same pattern as our Compute flow.
               </p>
             </div>
 
             <div>
-              <h2 className="font-semibold mb-2">Client CLI (copy & run)</h2>
-              <textarea
-                className="w-full border rounded p-3 font-mono text-xs"
-                rows={24}
-                readOnly
-                value={clientCmd}
-              />
-              <p className="text-xs text-gray-600 mt-2">
-                Requires Akash CLI and <code>jq</code> installed on the client system.
+              <h2 className="font-semibold mb-1">Linux / macOS</h2>
+              <pre className="bg-gray-900 text-gray-100 rounded p-3 text-xs overflow-x-auto">
+{cmdPosix}
+              </pre>
+            </div>
+
+            <div>
+              <h2 className="font-semibold mb-1">Windows (PowerShell → bash)</h2>
+              <pre className="bg-gray-900 text-gray-100 rounded p-3 text-xs overflow-x-auto">
+{cmdWin}
+              </pre>
+              <p className="text-xs text-gray-600 mt-1">
+                Requires <code>bash</code> in PATH (Git-Bash or WSL). If you want a pure PowerShell script, I can add it.
               </p>
             </div>
           </div>

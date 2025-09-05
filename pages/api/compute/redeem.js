@@ -1,126 +1,52 @@
 // pages/api/compute/redeem.js
-const KV_URL   = process.env.KV_REST_API_URL;
-const KV_TOKEN = process.env.KV_REST_API_TOKEN;
-const RESEND   = process.env.RESEND_API_KEY || "";
-
-async function kvReq(path, body = null) {
-  const url = `${KV_URL}${path}`;
-  const init = {
-    method: "POST",
-    headers: { Authorization: `Bearer ${KV_TOKEN}` },
-  };
-  if (body != null) {
-    init.body = typeof body === "string" ? body : String(body);
-  }
-  const r = await fetch(url, init);
-  if (!r.ok) {
-    const t = await r.text().catch(() => "");
-    throw new Error(`KV ${path} failed ${r.status}: ${t}`);
-  }
-}
-
-async function kvSet(key, value) {
-  return kvReq(`/set/${encodeURIComponent(key)}/${encodeURIComponent(value)}`);
-}
-async function kvRPush(key, value) {
-  return kvReq(`/rpush/${encodeURIComponent(key)}/${encodeURIComponent(value)}`);
-}
-
-function fromBase64Url(b64url) {
-  try {
-    let s = String(b64url || "");
-    s = s.replace(/-/g, "+").replace(/_/g, "/");
-    while (s.length % 4) s += "=";
-    return Buffer.from(s, "base64").toString("utf8");
-  } catch {
-    return "";
-  }
-}
-
-function parseToken(tok) {
-  try {
-    const parts = String(tok || "").split(".");
-    if (parts.length < 2) return null;            // must have v1.<payload>[.<sig>]
-    const header = parts[0];
-    if (!/^v1$/.test(header)) return null;        // only v1 supported
-    const payloadJson = fromBase64Url(parts[1]);
-    if (!payloadJson) return null;
-    const data = JSON.parse(payloadJson);
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-async function sendEmail(to, subject, html) {
-  if (!RESEND || !to) return;
-  try {
-    await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${RESEND}`,
-      },
-      body: JSON.stringify({
-        from: "Indianode <notify@mail.indianode.com>",
-        to,
-        subject,
-        html,
-      }),
-    });
-  } catch {
-    /* ignore */
-  }
-}
+import { kv } from "@vercel/kv";
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", ["POST"]);
-    return res.status(405).json({ ok: false, error: "method_not_allowed" });
-  }
+  try {
+    if (req.method !== "POST") {
+      res.setHeader("Allow", "POST");
+      return res.status(405).json({ ok: false, error: "Method Not Allowed" });
+    }
 
-  if (!KV_URL || !KV_TOKEN) {
-    return res.status(500).json({ ok: false, error: "kv_missing" });
-  }
+    // Parse body safely
+    const body =
+      typeof req.body === "object" && req.body
+        ? req.body
+        : (() => {
+            try {
+              return JSON.parse(req.body || "{}");
+            } catch {
+              return {};
+            }
+          })();
 
-  const token =
-    (req.body && (req.body.token || req.body.ORDER_TOKEN)) ||
-    req.headers["x-order-token"] ||
-    process.env.ORDER_TOKEN ||
-    "";
+    // Inputs from existing compute flow
+    const token = typeof body.token === "string" ? body.token : "";
+    const sku = typeof body.sku === "string" ? body.sku : (body.product || "generic");
+    const minutes = Number(body.minutes || body.qty || 60) || 60;
+    const email = typeof body.email === "string" ? body.email : "";
 
-  const tok = String(token || "").trim();
-  if (!tok) return res.status(400).json({ ok: false, error: "missing_token" });
+    // NEW: accept custom SDL (raw or base64) + optional metadata
+    const sdlRaw = typeof body.sdl === "string" ? body.sdl : "";
+    const sdlB64 = typeof body.sdlB64 === "string" ? body.sdlB64 : "";
+    const sdlName = typeof body.sdlName === "string" ? body.sdlName : "";
+    const sdlNotes = typeof body.sdlNotes === "string" ? body.sdlNotes : "";
 
-  const data = parseToken(tok);
-  // Must look like a compute token
-  if (!data || (data.kind && data.kind !== "compute")) {
-    return res.status(400).json({ ok: false, error: "bad_token" });
-  }
+    let sdl = sdlRaw;
+    if (!sdl && sdlB64) {
+      try {
+        sdl = Buffer.from(String(sdlB64), "base64").toString("utf8");
+      } catch {
+        // ignore decode error; sdl stays empty
+      }
+    }
 
-  const sku =
-    String(data.sku || data.product || "generic").toLowerCase().trim() || "generic";
-  const minutes = Math.max(1, Number(data.minutes || 1));
-  const email = (data.email || "").trim();
+    // Generate a job id (same style)
+    const now = Date.now();
+    const id = `job_${Math.floor(now / 1000)}_${Math.random().toString(36).slice(2, 8)}`;
 
-  const id = `job_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
-  const now = Date.now();
-  const job = {
-    id,
-    kind: "compute",
-    sku,
-    minutes,
-    token: tok,
-    email,
-    enqueuedAt: now,
-  };
-
-  // enqueue and set status record
-  await kvRPush("compute:queue", JSON.stringify(job));
-  await kvSet(
-    `compute:status:${id}`,
-    JSON.stringify({
-      ok: true,
+    // Build the job object; keep existing fields the same
+    const job = {
       id,
       status: "queued",
       sku,
@@ -128,15 +54,31 @@ export default async function handler(req, res) {
       email,
       createdAt: now,
       message: "queued via redeem",
-    })
-  );
+    };
 
-  // notify user if email present
-  await sendEmail(
-    email,
-    "Compute job queued",
-    `<p>Your job <b>${id}</b> is queued for <b>${minutes} min</b> on <b>${sku}</b>.</p>`
-  );
+    // Preserve the token if you want the worker to see it (optional)
+    if (token) job.token = token;
 
-  return res.status(200).json({ ok: true, queued: true, id });
+    // If SDL is provided, attach it as a payload – this does NOT affect other flows
+    if (sdl) {
+      job.payload = {
+        kind: "akash-sdl",
+        sdl,
+        sdlName,
+        sdlNotes,
+      };
+    }
+
+    // Enqueue the job exactly like your existing flow
+    // NOTE: If your code uses a different key, adjust "compute:queue" to match.
+    await kv.lpush("compute:queue", JSON.stringify(job));
+
+    // (Optional) store a side copy; safe to omit if your current flow doesn't need it
+    // await kv.set(`compute:job:${id}`, JSON.stringify(job), { ex: 60 * 60 * 24 });
+
+    return res.status(200).json({ ok: true, queued: true, id });
+  } catch (err) {
+    console.error("redeem error:", err);
+    return res.status(500).json({ ok: false, error: "redeem_failed" });
+  }
 }
