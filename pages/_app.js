@@ -3,6 +3,7 @@ import "@/styles/globals.css";
 import Script from "next/script";
 import { useRouter } from "next/router";
 import { useEffect } from "react";
+import Footer from "@/components/Footer"; // ⬅️ added
 
 // keep your env var; fallback to your real ID so it always works
 const GA_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "G-YQFT6PHP65";
@@ -24,7 +25,7 @@ export default function App({ Component, pageProps }) {
     // Fire ONE page_view when gtag finishes loading
     let tries = 0;
     const timer = setInterval(() => {
-      if (window.gtag) {
+      if (typeof window !== "undefined" && window.gtag) {
         sendPageview(window.location.pathname + window.location.search);
         clearInterval(timer);
       } else if (++tries > 40) {
@@ -57,6 +58,7 @@ export default function App({ Component, pageProps }) {
       `}</Script>
 
       <Component {...pageProps} />
+      <Footer /> {/* ⬅️ added; renders on every page without touching GA4 */}
     </>
   );
 }
