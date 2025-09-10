@@ -242,14 +242,6 @@ $env:SDL_B64 = '${sdlB64}'
     }
   }
 
-  // Resolve site origin for links (works on client + SSR fallback)
-  const origin = useMemo(() => {
-    try {
-      if (typeof window !== "undefined") return window.location.origin;
-    } catch {}
-    return "https://www.indianode.com";
-  }, []);
-
   return (
     <>
       <Head>
@@ -425,35 +417,6 @@ $env:SDL_B64 = '${sdlB64}'
             >
               Copy token only
             </button>
-          </div>
-
-          {/* How to check status */}
-          <div className="mt-3 border border-amber-200 bg-amber-50 text-amber-900 rounded-lg p-3">
-            <p className="text-sm font-medium">How to check your job status</p>
-            <ol className="list-decimal ml-5 text-xs mt-1 space-y-1">
-              <li>
-                Run the command above. It will print a <code>job_id</code> like <code>job_123...</code>.
-              </li>
-              <li>
-                Open this URL in your browser (replace <code>&lt;job_id&gt;</code> with the actual id):
-              </li>
-            </ol>
-            <div className="mt-2 font-mono text-xs bg-white rounded border px-2 py-1 overflow-x-auto">
-              {origin}/api/compute/status?id=&lt;job_id&gt;
-            </div>
-            <div className="mt-2">
-              <button
-                className="bg-white hover:bg-gray-50 border border-gray-300 text-gray-800 px-2 py-1 rounded text-xs"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(`${origin}/api/compute/status?id=`);
-                  } catch {}
-                }}
-                title="Copies the base URL; paste your job_id after ="
-              >
-                Copy status URL base
-              </button>
-            </div>
           </div>
         </div>
       </Modal>
