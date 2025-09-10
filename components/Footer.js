@@ -13,12 +13,16 @@ export default function Footer() {
         color: "#475569",
       }}
     >
+      <Link href="/about">About Us</Link> •{" "}
+      <Link href="/contact">Contact Us</Link> •{" "}
       <Link href="/terms">Terms &amp; Conditions</Link> •{" "}
       <Link href="/privacy">Privacy Policy</Link> •{" "}
       <Link href="/refund">Cancellation &amp; Refund Policy</Link> •{" "}
       <Link href="/pricing">Pricing Policy</Link> •{" "}
       <Link href="/shipping">Shipping Policy</Link>
-      <div style={{ marginTop: 10 }}>© {new Date().getFullYear()} Indianode Cloud</div>
+      <div style={{ marginTop: 10 }}>
+        © {new Date().getFullYear()} Indianode Cloud
+      </div>
     </footer>
   );
 }
