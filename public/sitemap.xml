@@ -1,38 +1,115 @@
 ﻿<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!-- Core -->
   <url>
     <loc>https://www.indianode.com/</loc>
-    <lastmod>2025-08-21</lastmod>
-    <changefreq>weekly</changefreq>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://www.indianode.com/whisper-gpu</loc>
-    <lastmod>2025-08-21</lastmod>
-    <changefreq>weekly</changefreq>
+    <loc>https://www.indianode.com/compute-sdl</loc>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>daily</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://www.indianode.com/sdls</loc>
-    <lastmod>2025-08-21</lastmod>
+    <loc>https://www.indianode.com/compute</loc>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>0.9</priority>
+  </url>
+
+  <!-- SEO landing pages -->
+  <url>
+    <loc>https://www.indianode.com/gpu-rental-india</loc>
+    <lastmod>2025-09-11</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://www.indianode.com/gpu-render-service</loc>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Product pages -->
+  <url>
+    <loc>https://www.indianode.com/whisper-gpu</loc>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://www.indianode.com/llm-hosting</loc>
-    <lastmod>2025-08-21</lastmod>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://www.indianode.com/sdls</loc>
+    <lastmod>2025-09-11</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://www.indianode.com/pricing</loc>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.7</priority>
+  </url>
+
+  <!-- Company pages -->
+  <url>
+    <loc>https://www.indianode.com/about</loc>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://www.indianode.com/contact</loc>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+
+  <!-- Policies -->
+  <url>
+    <loc>https://www.indianode.com/privacy</loc>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://www.indianode.com/terms</loc>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://www.indianode.com/refund</loc>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.4</priority>
+  </url>
+  <url>
+    <loc>https://www.indianode.com/shipping</loc>
+    <lastmod>2025-09-11</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.4</priority>
+  </url>
+
+  <!-- Blog -->
+  <url>
     <loc>https://www.indianode.com/blog/whisper-3090-guide</loc>
-    <lastmod>2025-08-21</lastmod>
+    <lastmod>2025-09-11</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
   <url>
     <loc>https://www.indianode.com/blog/what-is-sdls</loc>
-    <lastmod>2025-08-21</lastmod>
+    <lastmod>2025-09-11</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.6</priority>
   </url>
