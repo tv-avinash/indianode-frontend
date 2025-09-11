@@ -3,10 +3,13 @@ import "@/styles/globals.css";
 import Script from "next/script";
 import { useRouter } from "next/router";
 import { useEffect } from "react";
-import Footer from "@/components/Footer"; // ⬅️ added
+import Footer from "@/components/Footer";
 
-// keep your env var; fallback to your real ID so it always works
-const GA_ID = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "G-YQFT6PHP65";
+// GA4 (existing) + Google Ads (new)
+const GA_ID =
+  process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "G-YQFT6PHP65"; // GA4
+const ADS_ID =
+  process.env.NEXT_PUBLIC_GTAG_ADS_ID || "AW-17546581584";      // Google Ads
 
 function sendPageview(path) {
   if (typeof window !== "undefined" && window.gtag && GA_ID) {
@@ -22,18 +25,16 @@ export default function App({ Component, pageProps }) {
   const router = useRouter();
 
   useEffect(() => {
-    // Fire ONE page_view when gtag finishes loading
     let tries = 0;
     const timer = setInterval(() => {
       if (typeof window !== "undefined" && window.gtag) {
         sendPageview(window.location.pathname + window.location.search);
         clearInterval(timer);
       } else if (++tries > 40) {
-        clearInterval(timer); // give up after ~4s
+        clearInterval(timer);
       }
     }, 100);
 
-    // Fire on SPA route changes
     const handleRouteChange = (url) => sendPageview(url);
     router.events.on("routeChangeComplete", handleRouteChange);
 
@@ -45,20 +46,25 @@ export default function App({ Component, pageProps }) {
 
   return (
     <>
+      {/* Load gtag once */}
       <Script
-        src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+        src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID || ADS_ID}`}
         strategy="afterInteractive"
       />
-      <Script id="ga4" strategy="afterInteractive">{`
+      <Script id="gtag-init" strategy="afterInteractive">{`
         window.dataLayer = window.dataLayer || [];
         function gtag(){dataLayer.push(arguments);}
         gtag('js', new Date());
-        // we'll send page_view manually (above)
-        gtag('config', '${GA_ID}', { send_page_view: false });
+
+        // Configure GA4 (no auto page_view; we send it manually)
+        ${GA_ID ? `gtag('config', '${GA_ID}', { send_page_view: false });` : ""}
+
+        // Configure Google Ads (for account verification & conversions)
+        ${ADS_ID ? `gtag('config', '${ADS_ID}');` : ""}
       `}</Script>
 
       <Component {...pageProps} />
-      <Footer /> {/* ⬅️ added; renders on every page without touching GA4 */}
+      <Footer />
     </>
   );
 }
