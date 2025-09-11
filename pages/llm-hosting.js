@@ -1,62 +1,74 @@
 // pages/llm-hosting.js
-import Head from "next/head";
 import Link from "next/link";
+import SEO from "@/components/SEO";
 
-export default function LLMHostingPage() {
-  const jsonLd = {
+export default function LlmHosting() {
+  const schema = {
     "@context": "https://schema.org",
     "@type": "Service",
-    name: "LLM Inference Hosting",
-    provider: { "@type": "Organization", name: "Indianode" },
-    description: "Serve popular LLMs on RTX 3090 with optimized inference pipelines.",
-    areaServed: "Worldwide"
+    name: "LLM Hosting on GPU",
+    serviceType: "Model serving / inference",
+    provider: { "@type": "Organization", name: "Indianode", url: "https://www.indianode.com" },
+    areaServed: "India",
+    offers: { "@type": "Offer", priceCurrency: "INR", price: "Contact" },
   };
 
   return (
     <>
-      <Head>
-        <title>LLM Inference on 3090 — Affordable GPU Hosting | Indianode</title>
-        <meta
-          name="description"
-          content="Serve LLMs on RTX 3090 with vLLM/TGI, quantization options, and basic monitoring. Great for chatbots and RAG."
-        />
-        <link rel="canonical" href="https://www.indianode.com/llm-hosting" />
-        <meta property="og:title" content="LLM Inference on RTX 3090 — Indianode" />
-        <meta property="og:description" content="Deploy and serve LLMs on RTX 3090 with sensible defaults." />
-        <meta property="og:url" content="https://www.indianode.com/llm-hosting" />
-        <meta property="og:type" content="website" />
-        <meta name="twitter:card" content="summary_large_image" />
-        <script type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
-        />
-      </Head>
+      <SEO
+        title="LLM Hosting on GPUs in India – Serve GPT-style Models | Indianode"
+        description="Host, fine-tune, and serve LLMs on dedicated RTX GPUs in India. Low latency endpoints for inference and experimentation."
+        canonical="https://www.indianode.com/llm-hosting"
+        keywords="llm hosting india, serve llm gpu, inference endpoint india"
+        breadcrumbs={[
+          { name: "Home", url: "/" },
+          { name: "LLM hosting", url: "/llm-hosting" },
+        ]}
+        schema={schema}
+      />
 
-      <main style={{maxWidth: 880, margin: "0 auto", padding: "2rem 1rem"}}>
-        <h1>LLM Inference on RTX 3090</h1>
+      <main style={{ maxWidth: 880, margin: "0 auto", padding: "2rem 1rem" }}>
+        <h1>LLM Hosting on GPUs</h1>
         <p>
-          Deploy quantized or full-precision <strong>LLMs</strong> with throughput-focused settings.
-          Perfect for prototypes, internal tools, and small-to-mid scale apps.
+          Serve GPT-style models with low latency on <strong>dedicated RTX 3090/4090</strong> instances. Bring your own
+          weights or select from curated open-source models. For longer experiments or fine-tunes, consider our{" "}
+          <Link href="/gpu-rental-india" className="text-blue-600 underline">
+            GPU rental in India
+          </Link>{" "}
+          plans, and use{" "}
+          <Link href="/compute-sdl" className="text-blue-600 underline">
+            SDL deployment
+          </Link>{" "}
+          to automate pipelines.
         </p>
 
-        <h2>Supported setups</h2>
+        <h2>Features</h2>
         <ul>
-          <li>vLLM / Text-Generation-Inference</li>
-          <li>Quantization: AWQ, GGUF, GPTQ (model-dependent)</li>
-          <li>Observability: logs + basic metrics</li>
+          <li>HTTPS inference endpoints, token auth, request logging</li>
+          <li>Autoscale presets; upgrade/downgrade GPU model</li>
+          <li>Optional vector DB & caching layers</li>
         </ul>
 
-        <h2>Process</h2>
-        <ol>
-          <li>Share model + container (or choose a template).</li>
-          <li>We deploy on our Akash-backed 3090 node.</li>
-          <li>You get the public endpoint and usage guidance.</li>
-        </ol>
+        <h2>Use cases</h2>
+        <ul>
+          <li>Chat assistants, RAG pipelines, structured extraction</li>
+          <li>Batch inference jobs and A/B testing</li>
+          <li>Prototype → production migration on the same stack</li>
+        </ul>
 
         <p>
           Related:&nbsp;
-          <Link href="/whisper-gpu" className="text-blue-600 underline">Whisper on GPU</Link>
+          <Link href="/whisper-gpu" className="text-blue-600 underline">
+            Whisper on GPU
+          </Link>
           &nbsp;•&nbsp;
-          <Link href="/sdls" className="text-blue-600 underline">SDLS hosting</Link>
+          <Link href="/gpu-render-service" className="text-blue-600 underline">
+            GPU for rendering
+          </Link>
+          &nbsp;•&nbsp;
+          <Link href="/pricing" className="text-blue-600 underline">
+            Pricing
+          </Link>
         </p>
       </main>
     </>

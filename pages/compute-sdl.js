@@ -1,10 +1,10 @@
 // pages/compute-sdl.jsx
 import { useEffect, useMemo, useState } from "react";
-import Head from "next/head";
 import Script from "next/script";
 import Link from "next/link";
+import SEO from "@/components/SEO";
 
-// GA helper (same as compute.jsx)
+// GA helper
 const gaEvent = (name, params = {}) => {
   try {
     if (typeof window !== "undefined" && window.gtag) {
@@ -13,7 +13,6 @@ const gaEvent = (name, params = {}) => {
   } catch {}
 };
 
-// Reusable compact modal (same UI/logic as compute.jsx)
 function Modal({ open, onClose, children, title = "Next steps" }) {
   if (!open) return null;
   return (
@@ -22,13 +21,7 @@ function Modal({ open, onClose, children, title = "Next steps" }) {
       <div className="relative w-full max-w-2xl mx-2 rounded-2xl bg-white shadow-xl">
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <h3 className="font-semibold text-base">{title}</h3>
-          <button
-            onClick={onClose}
-            className="rounded-md p-1.5 hover:bg-gray-100"
-            aria-label="Close"
-          >
-            ✕
-          </button>
+          <button onClick={onClose} className="rounded-md p-1.5 hover:bg-gray-100" aria-label="Close">✕</button>
         </div>
         <div className="p-4">{children}</div>
       </div>
@@ -66,16 +59,6 @@ deployment:
   // UI state
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
-
-  // Run command modal (same pattern as compute.jsx)
-  function getRunUrl() {
-    try {
-      if (typeof window !== "undefined") {
-        return `${window.location.origin}/api/compute/run-sdl.sh`;
-      }
-    } catch {}
-    return "https://www.indianode.com/api/compute/run-sdl.sh";
-  }
   const [mintOpen, setMintOpen] = useState(false);
   const [mintToken, setMintToken] = useState("");
   const [mintCmd, setMintCmd] = useState("");
@@ -98,6 +81,15 @@ deployment:
     }
   }, [sdl]);
 
+  function getRunUrl() {
+    try {
+      if (typeof window !== "undefined") {
+        return `${window.location.origin}/api/compute/run-sdl.sh`;
+      }
+    } catch {}
+    return "https://www.indianode.com/api/compute/run-sdl.sh";
+  }
+
   function buildCommands(token) {
     const url = getRunUrl();
     const posix = `export ORDER_TOKEN='${token}'
@@ -109,7 +101,6 @@ $env:SDL_B64 = '${sdlB64}'
     return { posix, win };
   }
 
-  // ---- API helpers (same endpoints + shapes as compute.jsx) ----
   async function createOrder({ product, minutes, userEmail }) {
     const r = await fetch("/api/compute/order", {
       method: "POST",
@@ -122,341 +113,4 @@ $env:SDL_B64 = '${sdlB64}'
   }
 
   async function mintAfterPayment({ paymentId, product, minutes, email, promo }) {
-    const r = await fetch("/api/compute/mint", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        paymentId,
-        product,
-        minutes: Number(minutes),
-        email: (email || "").trim(),
-        promo: (promo || "").trim(),
-      }),
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j?.error || "token_mint_failed");
-    return j;
-  }
-
-  // ---- Payments (same methodology as compute.jsx) ----
-  async function payWithRazorpaySDL() {
-    try {
-      setMsg("");
-      setLoading(true);
-
-      if (!String(sdl).trim()) {
-        throw new Error("SDL cannot be empty.");
-      }
-
-      const userEmail = (email || "").trim();
-      if (!userEmail) {
-        setMsg("Tip: add your email so we can send your run command + receipt.");
-      }
-
-      // Use product "generic" so server pricing stays consistent with compute.jsx
-      const order = await createOrder({
-        product: "generic",
-        minutes,
-        userEmail,
-      });
-
-      const valueInr = Number(((order.amount || 0) / 100).toFixed(2));
-      const promoCode = (promo || "").trim().toUpperCase();
-
-      gaEvent("begin_checkout", {
-        value: valueInr,
-        currency: order.currency || "INR",
-        coupon: promoCode || undefined,
-        items: [
-          {
-            item_id: "sdl",
-            item_name: "Custom SDL",
-            item_category: "compute",
-            quantity: 1,
-            price: valueInr,
-          },
-        ],
-        minutes: Number(minutes),
-        payment_method: "razorpay",
-      });
-
-      const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "rzp_test_xxxxxx",
-        amount: order.amount,
-        currency: order.currency,
-        order_id: order.id,
-        name: "Indianode Cloud",
-        description: `Custom SDL (${minutes} min)`,
-        prefill: userEmail ? { email: userEmail } : undefined,
-        notes: { minutes: String(minutes), product: "generic", email: userEmail, promo: promoCode, kind: "sdl" },
-        theme: { color: "#111827" },
-        handler: async (response) => {
-          try {
-            // Mint ORDER_TOKEN after successful payment (same as compute.jsx flow)
-            const result = await mintAfterPayment({
-              paymentId: response.razorpay_payment_id,
-              product: "generic",
-              minutes,
-              email: userEmail,
-              promo,
-            });
-            const token = result?.token || "";
-            if (!token) throw new Error("no_token");
-
-            const { posix, win } = buildCommands(token);
-            setMintToken(token);
-            setMintCmd(posix);
-            setMintCmdWin(win);
-            setMintOpen(true);
-
-            gaEvent("purchase", {
-              transaction_id: response.razorpay_payment_id,
-              value: valueInr,
-              currency: order.currency || "INR",
-              coupon: promoCode || undefined,
-              items: [
-                {
-                  item_id: "sdl",
-                  item_name: "Custom SDL",
-                  item_category: "compute",
-                  quantity: 1,
-                  price: valueInr,
-                },
-              ],
-              minutes: Number(minutes),
-              payment_method: "razorpay",
-            });
-          } catch (e) {
-            alert("Could not mint ORDER_TOKEN (" + (e.message || "token_mint_failed") + ")");
-          }
-        },
-      };
-
-      const rzp = new window.Razorpay(options);
-      rzp.on("payment.failed", (resp) => alert(resp?.error?.description || "Payment failed"));
-      rzp.open();
-    } catch (e) {
-      alert(e.message || "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Resolve site origin for links (works on client + SSR fallback)
-  const origin = useMemo(() => {
-    try {
-      if (typeof window !== "undefined") return window.location.origin;
-    } catch {}
-    return "https://www.indianode.com";
-  }, []);
-
-  return (
-    <>
-      <Head>
-        <title>Custom SDL — Indianode</title>
-        <meta
-          name="description"
-          content="Submit your own SDL, pay per minute with Razorpay, and redeem with a one-time ORDER_TOKEN."
-        />
-        <link rel="canonical" href="https://www.indianode.com/compute-sdl" />
-      </Head>
-
-      <div className="min-h-screen bg-gray-50 text-gray-900">
-        <Script src="https://checkout.razorpay.com/v1/checkout.js" />
-
-        {/* Compact header (same style as compute.jsx) */}
-        <header className="px-4 py-3 bg-gray-900 text-white">
-          <div className="max-w-6xl mx-auto flex items-center justify-between">
-            <div className="text-lg font-semibold tracking-tight">Indianode Cloud</div>
-            <nav className="text-xs space-x-3">
-              <Link href="/" className="hover:underline">Home</Link>
-              <Link href="/compute" className="hover:underline">Compute</Link>
-              <Link href="/storage" className="hover:underline">Storage</Link>
-            </nav>
-          </div>
-        </header>
-
-        {/* Main */}
-        <main className="max-w-6xl mx-auto px-4 pt-4 pb-2">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-bold leading-tight">Custom SDL runner</h1>
-              <p className="text-sm text-gray-600">
-                Pay per minute and redeem via{" "}
-                <code className="font-mono">/api/compute/run-sdl.sh</code>.
-              </p>
-            </div>
-
-            {/* Buyer inputs toolbar (same compact style) */}
-            <div className="bg-white rounded-xl shadow border px-3 py-2">
-              <div className="grid grid-cols-3 gap-2 items-end">
-                <label className="flex flex-col">
-                  <span className="text-[11px] font-semibold">Email</span>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="border rounded-md px-2 py-1 text-sm"
-                    disabled={loading}
-                  />
-                </label>
-                <label className="flex flex-col">
-                  <span className="text-[11px] font-semibold">Minutes</span>
-                  <input
-                    type="number"
-                    min="1"
-                    max="480"
-                    value={minutes}
-                    onChange={(e) => setMinutes(Math.max(1, Number(e.target.value || 1)))}
-                    className="border rounded-md px-2 py-1 text-sm"
-                    disabled={loading}
-                  />
-                </label>
-                <label className="flex flex-col">
-                  <span className="text-[11px] font-semibold">Promo</span>
-                  <input
-                    value={promo}
-                    onChange={(e) => setPromo(e.target.value)}
-                    placeholder="TRY / TRY10"
-                    className="border rounded-md px-2 py-1 text-sm"
-                    disabled={loading}
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
-
-          {msg && (
-            <div className="mt-2 text-center text-xs text-emerald-800 bg-emerald-100 border border-emerald-200 rounded-lg px-3 py-1.5">
-              {msg}
-            </div>
-          )}
-
-          {/* SDL editor */}
-          <div className="mt-3 grid grid-cols-1 gap-3">
-            <div className="bg-white border rounded-2xl shadow p-4">
-              <label className="block text-sm font-medium mb-2">SDL (YAML)</label>
-              <textarea
-                className="w-full border rounded-xl px-3 py-2 font-mono text-sm"
-                rows={20}
-                spellCheck={false}
-                value={sdl}
-                onChange={(e) => setSdl(e.target.value)}
-                disabled={loading}
-              />
-              <div className="mt-3">
-                <button
-                  className={`text-white px-3 py-1.5 text-sm rounded-lg ${
-                    loading ? "bg-gray-400 cursor-not-allowed" : "bg-indigo-600 hover:bg-indigo-700"
-                  }`}
-                  onClick={payWithRazorpaySDL}
-                  disabled={loading}
-                >
-                  Pay & Get Command • Razorpay
-                </button>
-              </div>
-            </div>
-          </div>
-        </main>
-
-        {/* Compact footer (same) */}
-        <footer className="px-4 py-3 text-center text-xs text-gray-600">
-          <nav className="mb-1 space-x-3">
-            <Link href="/" className="text-blue-600 hover:underline">Home</Link>
-            <Link href="/compute" className="text-blue-600 hover:underline">Compute</Link>
-            <Link href="/storage" className="text-blue-600 hover:underline">Storage</Link>
-          </nav>
-          © {new Date().getFullYear()} Indianode
-        </footer>
-      </div>
-
-      {/* Mint modal (same compact UI as compute.jsx) */}
-      <Modal open={mintOpen} onClose={() => setMintOpen(false)} title="Payment verified — run this command">
-        <div className="space-y-2">
-          <p className="text-sm text-gray-700">
-            We minted a one-time <b>ORDER_TOKEN</b>. Run the command below from your own machine
-            (not the Akash host VM).
-          </p>
-
-          <div className="flex gap-2 text-[11px]">
-            <button
-              onClick={() => setOsTab("linux")}
-              className={`px-2.5 py-1 rounded border ${
-                osTab === "linux" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800 border-gray-200"
-              }`}
-              title="macOS / Linux (bash or zsh)"
-            >
-              macOS / Linux
-            </button>
-            <button
-              onClick={() => setOsTab("windows")}
-              className={`px-2.5 py-1 rounded border ${
-                osTab === "windows" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800 border-gray-200"
-              }`}
-              title="Windows PowerShell"
-            >
-              Windows (PowerShell)
-            </button>
-          </div>
-
-          <div className="bg-gray-900 text-gray-100 rounded-xl p-3 font-mono text-xs overflow-x-auto">
-            {osTab === "windows" ? mintCmdWin || "…" : mintCmd || "…"}
-          </div>
-
-          <div className="flex gap-2">
-            <button
-              className="bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 rounded-lg text-sm"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(osTab === "windows" ? mintCmdWin : mintCmd);
-                } catch {}
-              }}
-            >
-              Copy command
-            </button>
-            <button
-              className="bg-gray-200 hover:bg-gray-300 text-gray-900 px-3 py-1.5 rounded-lg text-sm"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(mintToken);
-                } catch {}
-              }}
-            >
-              Copy token only
-            </button>
-          </div>
-
-          {/* How to check status */}
-          <div className="mt-3 border border-amber-200 bg-amber-50 text-amber-900 rounded-lg p-3">
-            <p className="text-sm font-medium">How to check your job status</p>
-            <ol className="list-decimal ml-5 text-xs mt-1 space-y-1">
-              <li>
-                Run the command above. It will print a <code>job_id</code> like <code>job_123...</code>.
-              </li>
-              <li>
-                Open this URL in your browser (replace <code>&lt;job_id&gt;</code> with the actual id):
-              </li>
-            </ol>
-            <div className="mt-2 font-mono text-xs bg-white rounded border px-2 py-1 overflow-x-auto">
-              {origin}/api/compute/status?id=&lt;job_id&gt;
-            </div>
-            <div className="mt-2">
-              <button
-                className="bg-white hover:bg-gray-50 border border-gray-300 text-gray-800 px-2 py-1 rounded text-xs"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(`${origin}/api/compute/status?id=`);
-                  } catch {}
-                }}
-                title="Copies the base URL; paste your job_id after ="
-              >
-                Copy status URL base
-              </button>
-            </div>
-          </div>
-        </div>
-      </Modal>
-    </>
-  );
-}
+    const r = await fetch

@@ -1,34 +1,33 @@
 // pages/contact.js
+import SEO from "@/components/SEO";
+
 export default function Contact() {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "ContactPage",
+    url: "https://www.indianode.com/contact",
+    breadcrumb: { "@type": "BreadcrumbList", itemListElement: [] },
+  };
+
   return (
-    <div style={{ maxWidth: "820px", margin: "40px auto", padding: "24px" }}>
-      <h1>Contact Us</h1>
-      <p>
-        We’d love to hear from you. Whether you have questions about our services,
-        billing, or support — feel free to reach out.
-      </p>
+    <>
+      <SEO
+        title="Contact Indianode – Support & Sales"
+        description="Get in touch with Indianode for support, billing, and sales inquiries."
+        canonical="https://www.indianode.com/contact"
+        keywords="contact indianode, gpu support india, sales indianode"
+        breadcrumbs={[
+          { name: "Home", url: "/" },
+          { name: "Contact", url: "/contact" },
+        ]}
+        schema={schema}
+      />
 
-      <h2>Email</h2>
-      <p>
-        📧 <a href="mailto:tvavinash@gmail.com">support@indianode.com</a>
-      </p>
-
-
-      <h2>Business Address</h2>
-      <p>
-        Indianode Cloud<br />
-        [Your Office/Registered Address]<br />
-        India
-      </p>
-
-      <h2>Support Hours</h2>
-      <p>Monday – Friday: 10:00 AM – 6:00 PM IST</p>
-
-      <p>
-        For urgent issues related to payments or service activation, please email us
-        directly at{" "}
-        <a href="mailto:support@indianode.com">support@indianode.com</a>.
-      </p>
-    </div>
+      <main style={{ maxWidth: 720, margin: "0 auto", padding: "2rem 1rem" }}>
+        <h1>Contact</h1>
+        <p>For support or sales, email us at: <a className="text-blue-600 underline" href="mailto:support@indianode.com">support@indianode.com</a></p>
+        <p>We usually respond within 1–2 business days.</p>
+      </main>
+    </>
   );
 }

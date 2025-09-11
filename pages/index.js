@@ -1,7 +1,7 @@
 // pages/index.jsx
-import Head from "next/head";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import SEO from "@/components/SEO"; // ✅ import the SEO component
 
 // Minimal inline logo that hints “nodes + India”
 function Logo({ className = "h-7 w-7" }) {
@@ -37,22 +37,14 @@ export default function Landing() {
 
   return (
     <>
-      <Head>
-        <title>Indianode — GPU • Compute • Storage</title>
-        <meta
-          name="description"
-          content="Pay-per-minute GPU (3090), CPU/RAM compute, and same-host NVMe storage. Ready SDLs for Akash + simple token-based runner."
-        />
-        <link rel="canonical" href="https://www.indianode.com/" />
-        <meta property="og:title" content="Indianode — GPU • Compute • Storage" />
-        <meta
-          property="og:description"
-          content="Run AI and services on-demand: GPU 3090, CPU/RAM, and NVMe storage. Works with Akash or your own host."
-        />
-        <meta property="og:type" content="website" />
-        <meta property="og:url" content="https://www.indianode.com/" />
-        <meta name="twitter:card" content="summary_large_image" />
-      </Head>
+      {/* ✅ Use SEO component by itself (do NOT wrap it in <Head>) */}
+      <SEO
+        title="GPU Rental in India – RTX 3090/4090 for AI/ML & Rendering | Indianode"
+        description="On-demand GPU compute in India. Train LLMs, run inference and rendering with RTX 3090/4090. Pay per minute with Razorpay. Also supports non-GPU compute and SDL deployments."
+        canonical="https://www.indianode.com/"
+        keywords="gpu rental india, ai ml gpu compute, render gpu, cloud gpu rtx 3090 4090, akash sdl deployment, gpu server india"
+        breadcrumbs={[{ name: "Home", url: "/" }]}
+      />
 
       <div className="relative min-h-screen overflow-hidden bg-slate-950 text-white">
         {/* subtle gradient background */}
@@ -68,22 +60,11 @@ export default function Landing() {
           </Link>
 
           <nav className="flex items-center gap-4 text-sm text-white/80">
-            <Link href="/gpu" className="hover:text-white">
-              GPU
-            </Link>
-            <Link href="/compute" className="hover:text-white">
-              Compute
-            </Link>
-            <Link href="/storage" className="hover:text-white">
-              Storage
-            </Link>
-            <Link href="/sdls" className="hidden sm:inline hover:text-white">
-              SDLs
-            </Link>
-            {/* New: direct link to wallet-less SDL flow */}
-            <Link href="/compute-sdl" className="hover:text-white">
-              Run non-GPU SDLs (No Wallet)
-            </Link>
+            <Link href="/gpu" className="hover:text-white">GPU</Link>
+            <Link href="/compute" className="hover:text-white">Compute</Link>
+            <Link href="/storage" className="hover:text-white">Storage</Link>
+            <Link href="/sdls" className="hidden sm:inline hover:text-white">SDLs</Link>
+            <Link href="/compute-sdl" className="hover:text-white">Run non-GPU SDLs (No Wallet)</Link>
           </nav>
         </header>
 
@@ -117,45 +98,27 @@ export default function Landing() {
                   className="group inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 font-semibold text-slate-900 hover:bg-cyan-50"
                 >
                   Start GPU (3090)
-                  <svg
-                    className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
+                  <svg className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" viewBox="0 0 20 20" fill="currentColor">
                     <path d="M12.293 3.293a1 1 0 011.414 0l4.999 5a1 1 0 010 1.414l-4.999 5a1 1 0 11-1.414-1.414L15.586 10l-3.293-3.293a1 1 0 010-1.414z" />
                     <path d="M3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" />
                   </svg>
                 </Link>
 
-                <Link
-                  href="/compute"
-                  className="inline-flex items-center justify-center rounded-2xl border border-white/20 px-6 py-3 font-semibold text-white hover:bg-white/10"
-                >
+                <Link href="/compute" className="inline-flex items-center justify-center rounded-2xl border border-white/20 px-6 py-3 font-semibold text-white hover:bg-white/10">
                   CPU / RAM Compute
                 </Link>
 
-                <Link
-                  href="/storage"
-                  className="inline-flex items-center justify-center rounded-2xl border border-white/20 px-6 py-3 font-semibold text-white hover:bg-white/10"
-                >
+                <Link href="/storage" className="inline-flex items-center justify-center rounded-2xl border border-white/20 px-6 py-3 font-semibold text-white hover:bg-white/10">
                   Persistent Storage
                 </Link>
               </div>
 
-              {/* quick badges */}
               <div className="mt-8 grid grid-cols-1 gap-3 text-xs text-white/70 sm:grid-cols-3">
-                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  Ready SDLs for Whisper, SD, LLM
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  Token-based runs with minute caps
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  Razorpay (UPI/cards) — no wallet
-                </div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3">Ready SDLs for Whisper, SD, LLM</div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3">Token-based runs with minute caps</div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3">Razorpay (UPI/cards) — no wallet</div>
               </div>
 
-              {/* CTA banner: wallet-less SDL flow */}
               <section className="mt-8">
                 <div className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg">
                   <div className="text-left">
@@ -163,8 +126,7 @@ export default function Landing() {
                       Run your non-GPU tasks (SDLs) — no crypto wallet needed
                     </h2>
                     <p className="text-sm opacity-90 mt-1">
-                      Pay with UPI, cards, or net-banking via Razorpay. We’ll mint a one-time{" "}
-                      <b>ORDER_TOKEN</b> so you can deploy straight from your terminal.
+                      Pay with UPI, cards, or net-banking via Razorpay. We’ll mint a one-time <b>ORDER_TOKEN</b> so you can deploy straight from your terminal.
                     </p>
                   </div>
                   <Link

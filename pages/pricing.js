@@ -1,25 +1,76 @@
-export default function PricingPolicy() {
+// pages/pricing.js
+import Link from "next/link";
+import SEO from "@/components/SEO";
+
+export default function Pricing() {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "OfferCatalog",
+    name: "Indianode Pricing",
+    itemListElement: [
+      {
+        "@type": "Offer",
+        itemOffered: { "@type": "Service", name: "GPU Rental (RTX 3090/4090)" },
+        priceCurrency: "INR",
+        price: "Varies",
+      },
+      {
+        "@type": "Offer",
+        itemOffered: { "@type": "Service", name: "Non-GPU Compute (CPU/RAM)" },
+        priceCurrency: "INR",
+        price: "Varies",
+      },
+    ],
+    url: "https://www.indianode.com/pricing",
+  };
+
   return (
-    <div style={{ maxWidth: "820px", margin: "40px auto", padding: "24px" }}>
-      <h1>Pricing Policy</h1>
-      <p><strong>Effective Date:</strong> 10 Sep 2025</p>
+    <>
+      <SEO
+        title="GPU Pricing – RTX 3090/4090 & Compute Rates | Indianode"
+        description="Transparent pricing for GPU and non-GPU compute. Pay per minute. Simple tokens, Razorpay support, no wallet needed for basic flows."
+        canonical="https://www.indianode.com/pricing"
+        keywords="gpu pricing india, rtx 3090 price per minute, render gpu cost, ai gpu rates"
+        breadcrumbs={[
+          { name: "Home", url: "/" },
+          { name: "Pricing", url: "/pricing" },
+        ]}
+        schema={schema}
+      />
 
-      <h2>1. Transparent Pricing</h2>
-      <p>All prices are shown before checkout. Rates are based on GPU/CPU hours, storage, and bandwidth usage.</p>
+      <main style={{ maxWidth: 880, margin: "0 auto", padding: "2rem 1rem" }}>
+        <h1>Pricing</h1>
+        <p>
+          Choose what you need and pay by the minute. For long-running jobs, our{" "}
+          <Link href="/gpu-rental-india" className="text-blue-600 underline">
+            GPU rental in India
+          </Link>{" "}
+          saves time and money. For quick jobs or one-offs, use{" "}
+          <Link href="/compute-sdl" className="text-blue-600 underline">
+            SDL deployment
+          </Link>
+          . Rendering users can explore{" "}
+          <Link href="/gpu-render-service" className="text-blue-600 underline">
+            GPU for rendering
+          </Link>
+          .
+        </p>
 
-      <h2>2. Currency</h2>
-      <p>All charges are in INR unless otherwise specified.</p>
+        <h2>Typical rates</h2>
+        <ul>
+          <li>RTX 3090 (24GB): pay-per-minute, volume discounts available</li>
+          <li>RTX 4090 (24GB): higher throughput for training/inference</li>
+          <li>CPU/RAM compute: short-lived tasks and microservices</li>
+        </ul>
 
-      <h2>3. Taxes</h2>
-      <p>Applicable GST is added at checkout and displayed on the payment page and invoice.</p>
-
-      <h2>4. Updates</h2>
-      <p>We may revise pricing. Changes are posted on the site and do not affect charges already incurred.</p>
-
-      <h2>Contact</h2>
-      <p>
-        Questions about pricing? <a href="mailto:support@indianode.com">support@indianode.com</a>
-      </p>
-    </div>
+        <p>
+          Need a custom plan or reserved capacity?{" "}
+          <Link href="/contact" className="text-blue-600 underline">
+            Contact us
+          </Link>
+          .
+        </p>
+      </main>
+    </>
   );
 }

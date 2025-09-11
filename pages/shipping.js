@@ -1,28 +1,38 @@
+// pages/shipping.js
+import Link from "next/link";
+import SEO from "@/components/SEO";
+
 export default function Shipping() {
+  const schema = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: "Shipping & Fulfillment",
+    url: "https://www.indianode.com/shipping",
+  };
+
   return (
-    <div style={{ maxWidth: "820px", margin: "40px auto", padding: "24px" }}>
-      <h1>Shipping Policy (Digital Services)</h1>
-      <p><strong>Effective Date:</strong> 10 Sep 2025</p>
+    <>
+      <SEO
+        title="Shipping & Fulfillment | Indianode"
+        description="Digital services fulfillment details for Indianode."
+        canonical="https://www.indianode.com/shipping"
+        keywords="shipping fulfillment indianode"
+        breadcrumbs={[
+          { name: "Home", url: "/" },
+          { name: "Shipping", url: "/shipping" },
+        ]}
+        schema={schema}
+      />
 
-      <h2>Nature of Service</h2>
-      <p>Indianode Cloud provides digital services only. No physical goods are shipped.</p>
-
-      <h2>Service Delivery</h2>
-      <p>
-        Compute and storage resources are provisioned immediately upon successful payment,
-        subject to availability and fraud checks.
-      </p>
-
-      <h2>Support</h2>
-      <p>
-        If your service did not activate after payment, contact{" "}
-        <a href="mailto:support@indianode.com">support@indianode.com</a> with your payment ID.
-      </p>
-
-      <h2>Contact</h2>
-      <p>
-        For any questions, email <a href="mailto:support@indianode.com">support@indianode.com</a>.
-      </p>
-    </div>
+      <main style={{ maxWidth: 880, margin: "0 auto", padding: "2rem 1rem" }}>
+        <h1>Shipping &amp; Fulfillment</h1>
+        <p>
+          Indianode provides <strong>digital services</strong>. After payment, your deployment or minutes are provisioned
+          automatically and visible in your dashboard or via email/token. For self-serve{" "}
+          <Link href="/compute-sdl" className="text-blue-600 underline">SDL deployment</Link> purchases, you’ll receive
+          a one-time ORDER_TOKEN to run commands immediately.
+        </p>
+      </main>
+    </>
   );
 }
