@@ -1,6 +1,5 @@
 // pages/compute-sdl.js
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/router";
 import Script from "next/script";
 import Link from "next/link";
 import SEO from "@/components/SEO";
@@ -38,8 +37,6 @@ function Modal({ open, onClose, children, title = "Next steps" }) {
 }
 
 export default function ComputeSDL() {
-  const router = useRouter();
-
   // Inputs
   const [email, setEmail] = useState("");
   const [minutes, setMinutes] = useState(60);
@@ -73,41 +70,6 @@ deployment:
       profile: web
       count: 1`.replace(/\r\n/g, "\n")
   );
-
-  // Prefill SDL from ?sdl_b64= or ?sdl=
-  useEffect(() => {
-    const q = router?.query || {};
-    const b64 = (typeof q.sdl_b64 === "string" && q.sdl_b64) || null;
-    const raw = (typeof q.sdl === "string" && q.sdl) || null;
-
-    const safeDecode = (b) => {
-      try {
-        // handle UTF-8 safely
-        const txt = atob(b);
-        const utf8 = decodeURIComponent(
-          Array.from(txt)
-            .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
-            .join("")
-        );
-        return utf8 || txt;
-      } catch {
-        try {
-          return atob(b);
-        } catch {
-          return "";
-        }
-      }
-    };
-
-    if (b64) {
-      const s = safeDecode(b64).trim();
-      if (s && s.startsWith("version:")) setSdl(s);
-    } else if (raw) {
-      // allow plain YAML via ?sdl=
-      const s = String(raw).trim();
-      if (s && s.startsWith("version:")) setSdl(s);
-    }
-  }, [router?.query]);
 
   // UI state
   const [loading, setLoading] = useState(false);
@@ -458,21 +420,7 @@ $env:SDL_B64 = '${sdlB64}'
           {/* SDL editor */}
           <div className="mt-3 grid grid-cols-1 gap-3">
             <div className="bg-white border rounded-2xl shadow p-4">
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium">SDL (YAML)</label>
-                <Link
-                  href="/sdl-generator"
-                  className="text-xs text-blue-600 hover:underline"
-                  onClick={() =>
-                    gaEvent("select_content", {
-                      item_id: "sdl_generator_link",
-                      item_category: "compute_sdl",
-                    })
-                  }
-                >
-                  Generate from plain English →
-                </Link>
-              </div>
+              <label className="block text-sm font-medium mb-2">SDL (YAML)</label>
               <textarea
                 className="w-full border rounded-xl px-3 py-2 font-mono text-sm"
                 rows={20}
